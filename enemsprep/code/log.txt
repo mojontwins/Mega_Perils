@@ -1,0 +1,20 @@
+cleanup - Vaciando estructuras
+cleanup - Vaciando estructuras
+cleanup - Vaciando estructuras
+cleanup - ok
+editor - inicializando
+cleanup - Vaciando estructuras
+cleanup - ok
+editor - inicializando
+recorta_tiles - creando tile 0
+recorta_tiles - Recortando tiles
+cleanup - Vaciando estructuras
+cleanup - ok
+editor - inicializando
+recorta_tiles - creando tile 0
+recorta_tiles - Recortando tiles
+cleanup - Vaciando estructuras
+cleanup - ok
+editor - inicializando
+recorta_tiles - creando tile 0
+recorta_tiles - Recortando tiles

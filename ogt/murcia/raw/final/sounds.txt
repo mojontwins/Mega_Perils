@@ -1,0 +1,23 @@
+blam ---> cuando bajan las presas en la fase de la factoria.
+bolt ---> cuando das las bragas y desbloqueas el caminow.
+countdown ---> cuando empieza la cuenta atrás de los pulsadores (aquí molaría un cojón que por ejemplo del 9 al 4 sonara cada segundo, y del 3 al 1 que el sonido fuera más rapido, pa avisarte de que se acaba el tema).
+final_countodwn ---> este que suene cuando se acaba el tiempow.
+power_off ---> para que suene cuando se acaba el tiempo (ahora mismo lo tienes puesto para que suene nada más pulsar y no mola). De todos modos se puede hacer de mil formas, porque también molaria que empezara a sonar cuando queden 4 o 3 segundos, rollo como que se va a apangdo el chisme. Yo que sé, ponlo como te salga la :picha:
+dalefran ---> xDDD
+hit ---> cuando golpean a Cheril.
+jump ---> sartar.
+key ---> coger bragas.
+life ---> corazón.
+no ---> no puedes pasar sin bragaws.
+spike ---> te punchas.
+
+ESO ES LO QUE MÁS O MENOS TENGO CLAROW.
+
+El "ah" que suena solo la verdad es que no tengo ni zorra de donde vá xD
+El "object" lo hice pero tampoco lo ubico... creo que también serviría para sustituir por el de coger las bragas o cuando coges un corazówn. Pero vamos, lo que te salga la polla.
+
+Voy a hacer nuevos para: Select (hecho), Start, uno para la pausa... y creo que alguno para cuando se mueven los barriles(hecho).
+
+Yo creo que con eso ya cubrimos todo.
+
+

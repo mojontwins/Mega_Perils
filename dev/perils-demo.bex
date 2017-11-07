@@ -1,0 +1,3145 @@
+''' Perils.bex
+'''
+''' First attempt to code a proper game for teh Genesis
+'''
+''' Copyleft 2013 The Mojon Twins
+
+''' Set Bex options
+	Option CARTRIDGE
+	Option TITLE, "MEGA Cheril Perils"
+	'Option NOLOADFONT
+
+''' Constants
+
+	Const #map_w				= 6
+	Const #map_h				= 6
+
+''' Those used to be constants, but I need them as variables
+''' So I can adjusto for NTSC.
+
+	Global player_max_vy_fall as Integer
+	Global player_g	as Integer
+	Global player_max_vy_jump as Integer
+	Global player_jump_incr as Integer
+	Global player_jump_ini as Integer
+
+	Global player_max_vx as Integer
+	Global player_ax as Integer
+	Global player_fx as Integer
+
+	Global player_conveyor as Integer
+
+''' Global variables
+
+	'' Data pointers
+	Global ptrMap0& as Long		' Points to map layer 0
+	Global ptrMap1& as Long		' Points to map layer 0
+	Global ptrExtra& as Long	' Points to extra
+	Global ptrEnems& as Long	' Points to enems
+	Global ptrBeh& as Long		' Points to behaviours
+	Global ptrResn& as Long		' Points to resonators
+	
+	'' Pcm player needs this
+	Dim pcmid as long
+    
+	'' Game
+	Global s_pant as Integer
+	Global n_pant as Integer
+	Global nn_pant as Integer
+	Dim doGame as Integer
+	Dim doPlay as Integer
+	Global estrujs_on as Integer
+
+	Global level as Integer
+
+	'' Cheril
+	Global plX as Integer
+	Global plY as Integer
+	Global plVX as Integer
+	Global plVY as Integer
+	Global plFacing as Integer
+	Global plFrame as Integer
+	Global plSubFrame as Integer
+	Global plJumping as Integer
+	Global plGotten as Integer
+	Global plJumpCtr as Integer
+	Global plStep as Integer
+	Global plFlicker as Integer
+	Global plCtr as Integer
+	Global plLife as Integer
+	Global plKeys as Integer
+	Global plKilled as Integer
+	Global plNenem as Integer
+
+	'' Heart
+	Global heartX as Integer
+	Global heartY as Integer
+	Global heartAct as Integer
+	Global heartFreq as Integer
+	Global heartNPant as Integer
+
+	'' Resonators
+	Global resnX as Integer
+	Global resnY as Integer
+	Global resnOn as Integer
+	Global resnCt as Integer
+	Global resnFrames as Integer
+	Global resnCtFrames as Integer
+
+	'' Estrujators
+	' 0:x 1:y 2:state 3:steps 4:ct 5:maxct 6:aux
+	Global estruj(7, 6) as Integer
+
+	'' Enemy Data
+	' 6*6*4 = 144
+	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:ct2
+	Global enemies(143, 15) As Integer
+	Global enoffs as Integer
+
+	'' Collision Data
+	Global behaviours(47) As Integer
+
+	'' Ram buffers
+	Global pattr(20,13) As Integer
+
+	'' Sine tables
+	Global sine_table_16(63) As Integer At sine_table_16_Data
+
+	'' Sprite handlers
+	Global sprPl as Integer
+	Global sprEn(3) As Integer
+	Global hudSprs(7) As Integer
+	Global sprExtra(7) As Integer
+	Global sprHeart As Integer
+	Global sprResn As Integer
+	Global sprResnCd As Integer
+
+	'' Misc
+	Global half_life As Integer
+	Global frame_counter As Integer
+	Global GAME_B as Integer
+
+	'' Sprite offsets
+	' Main Player
+	' 0 = standing
+	' 1,2,3,4 = running
+	' 5 = jumping/falling
+	' +6 = facing left.
+	Global pl_spr_offs(13) As Integer At pl_sprite_offsets_Data
+	Global fl_spr_offs(4) As Integer At fl_sprite_offsets_Data
+
+	' Enemies
+	Global en_spr_offs(31) As Integer At en_sprite_offsets_Data
+
+	' Explosion
+	Global ex_spr_offs(1) As Integer At ex_sprite_offsets_Data
+
+	' Platforms
+	Global pt_spr_offs(1) As Integer At pt_sprite_offsets_Data
+
+	' Countdown
+	Global cd_spr_offs(9) As Integer At cd_sprite_offsets_Data
+
+	'' Extra objects
+	' 0:x 1:y 2:rx 3:ry 4:type 5:state{0 idle, 1 moving, ...} 6:dx
+	' Define 8
+	Global extra_objects(287, 7) As Integer
+	Global exoffs As Integer
+
+''' Initialization stuff
+	disclaimer
+	
+	pcmid& = 64
+	Disable Screen
+	z80_loadDriver
+	Enable Screen
+	
+	initializationStuff
+
+	
+''' Game on
+
+	Do
+		' Menu, intros, etc here
+		title
+		GAME_B = 1
+
+		prepareMyGameStuff
+
+''' That's it.
+
+		'' level support
+
+		' TEMPORAL
+		level = 1
+		
+		doPlay = 1
+		While doPlay = 1
+
+''' Init Game
+			prepare_level
+			n_pant = s_pant
+			nn_pant = n_pant
+
+			' Prepare Screen
+			draw_scr
+			If estrujs_on = 1 Then move_estruj
+			playSound 11
+			hud
+
+			' Start music
+			sleep 30
+	    	playThisLevelMusic
+
+			' Let's do it
+			doGame = 1
+			half_life = 0
+			gameOver = 0
+
+			While doGame = 1
+				half_life = 1 - half_life
+				frame_counter = frame_counter + 1
+
+				'' Move stuff around
+				move_player
+				move_enems
+				move_with_platforms
+				move_extra
+				move_heart
+				If estrujs_on = 1 Then move_estruj
+				do_resonators
+
+				'' Manage collisions
+				collisions
+
+				'' Pause button
+				pause_button
+
+				'' Change screen ?
+				change_screen
+				If nn_pant <> n_pant Then
+					fix_movables
+					n_pant = nn_pant
+					draw_scr
+					hud
+				End If
+
+				'' Scrolly Effect
+				'If level = 3 Then scrolly_effect
+
+				'' Update Sprites
+				sleep 1
+
+				' Y + 8 all sprites.
+				' Player: offset -4, -8
+
+				If plFlicker = 0 [OR] half_life = 1 [OR] plCtr > 90 Then
+					moveSprite sprPl, (plX >> 6) - 4, (plY >> 6)
+				Else
+					moveSprite sprPl, 0, 0
+				End If
+
+				' Enemies
+				For mli = 0 To 3
+					If enemies(enoffs + mli, 8) Then moveSprite SprEn(mli), enemies(enoffs + mli, 0) - 4, enemies(enoffs + mli, 1)
+				Next mli
+
+				' End game?
+				If plKilled = plNenem Then
+					win_level
+					doGame = 0
+				End If
+
+				If plLife = 0 Then
+					game_over
+					doGame = 0
+					doPlay = 0
+				End If
+			Wend
+
+			' Stop playback
+			
+		Wend
+
+		'' Destruction
+		Disable Screen
+		For i = 0 To 7
+			FreeSprite hudSprs(i)
+			FreeSprite sprExtra(i)
+		Next i
+		For i = 0 To 3
+			FreeSprite SprEn(i)
+		next i
+		FreeSprite SprPl
+		FreeSprite SprHeart
+		FreeSprite SprResn
+		FreeSprite SprResnCd
+		Enable Screen
+	Loop
+
+''' Subroutines
+
+''' SUPERHACK
+''' Al principio todas las que llamen a otras con parámetros.
+
+'' Draws current screen and sets up enemies and stuff
+Declare Sub draw_scr
+	' Estrujs:
+	For esi = 0 To 7
+		estruj(esi, 2) = &HFF
+	Next esi
+
+	Sleep 1
+	Disable Screen
+
+	'' Prepare enemies
+	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:res3
+	enoffs = n_pant << 2
+	For eni = 0 To 3
+		If enemies(enoffs + eni, 8) Then
+			load_spr_tiles eni, enemies(enoffs + eni, 8) - 1
+			moveSprite SprEn(eni), enemies(enoffs + eni, 0) - 4, enemies(enoffs + eni, 1)
+		Else
+			moveSprite SprEn(eni), 0, 0
+		End If
+	Next eni
+
+	'' Place player
+	moveSprite sprPl, (plX >> 6) - 4, (plY >> 6)
+
+	'' Draw BG
+	SetGFXPlane SCROLL_B
+	DataPtr& = ptrMap0&
+	draw_layer 2, 0
+
+	'' Draw FG
+	SetGFXPlane SCROLL_A
+	DataPtr& = ptrMap1&
+	draw_layer 1, 1
+
+	'' Extra objects
+
+	exoffs = n_pant << 3
+	For exi = 0 To 7
+		exIdx = exoffs + exi
+		' state
+		extra_objects(exIdx, 5) = 0
+		If extra_objects(exIdx, 4) <> 0 Then
+			' Attr
+			If extra_objects(exIdx, 4) = 2 [OR] extra_objects(exIdx, 4) = 3 Then
+				pattr(extra_objects(exIdx, 0), extra_objects(exIdx, 1)) = 4
+			End If
+			propSprite sprExtra(exi), 152 + (extra_objects(exIdx, 4)<<2), 0
+			moveSprite sprExtra(exi), extra_objects(exIdx, 2), extra_objects(exIdx, 3)
+		Else
+			moveSprite sprExtra(exi), 0, 0
+		End If
+	Next exi
+
+	'' Place resonator
+	If GAME_B != 0 Then
+		DataPtr& = ptrResn& + (n_pant << 1)
+		Read resnX
+		resnX = 128 + (resnX << 4)
+		Read resnY
+		resnY = 128 + (resnY << 4)
+
+		If resnOn = 0 Then
+			propSprite sprResn, 1088, 3
+			moveSprite sprResnCd, 0, 0
+		Else
+			propSprite sprResn, 1097, 3
+			moveSprite sprResnCd, resnX + 4, resnY + 8
+		End If
+
+		moveSprite sprResn, resnX - 4, resnY
+
+
+		' set_pal_nm
+	Else
+		resnX = 0
+		resnY = 0
+		resnOn = 0
+	End If
+	'' Whoahahahaha
+
+	Enable Screen
+End Sub
+
+'' Load enemies from ROM into RAM and precalc stuff
+Declare Sub load_enemies()
+ 	' Data t, x1, y1, x2, y2, v
+ 	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:ct2
+
+	DataPtr& = ptrEnems&
+
+	For len_i = 0 To 143
+		Read t, x1, y1, x2, y2, v
+		enemies(len_i, 0) = 128 + (x1 << 4)
+		enemies(len_i, 1) = 128 + (y1 << 4)
+		enemies(len_i, 2) = 128 + (x1 << 4)
+		enemies(len_i, 3) = 128 + (y1 << 4)
+		enemies(len_i, 4) = 128 + (x2 << 4)
+		enemies(len_i, 5) = 128 + (y2 << 4)
+		enemies(len_i, 6) = directn(x2, x1, v)
+		enemies(len_i, 7) = directn(y2, y1, v)
+		enemies(len_i, 8) = t
+		enemies(len_i, 9) = 1		' en:st: 0:off 1:normal 2:pursuing 3:dying
+		enemies(len_i, 10) = 0		' ct1
+		enemies(len_i, 11) = 0		' ct2
+	Next i
+End Sub
+
+'' Move extra objects and checks for collisions
+Declare Sub move_extra()
+	' 0:x 1:y 2:rx 3:ry 4:type 5:state{0 idle, 1 moving, ...} 6:dx
+
+	x = plX >> 6
+	y = 8 + (plY >> 6)
+
+	For i = 0 To 7
+		exIdx = exoffs + i
+		' Moving? 1 <-, 2 ->
+		If extra_objects(exIdx, 5) = 1 Then
+			extra_objects(exIdx, 2) = extra_objects(exIdx, 2) - 4
+			moveSprite sprExtra(i), extra_objects(exIdx,2), extra_objects(exIdx,3)
+			If extra_objects(exIdx, 2) = extra_objects(exIdx, 6) Then
+				extra_objects(exIdx, 5) = 0
+				extra_objects(exIdx, 0) = extra_objects(exIdx, 0) - 1
+				pattr(extra_objects(exIdx, 0), extra_objects(exIdx, 1)) = 4
+				pattr(extra_objects(exIdx, 0) + 1, extra_objects(exIdx, 1)) = 0
+			End If
+		ElseIf extra_objects(exIdx, 5) = 2 Then
+			extra_objects(exIdx, 2) = extra_objects(exIdx, 2) + 4
+			moveSprite sprExtra(i), extra_objects(exIdx,2), extra_objects(exIdx,3)
+			If extra_objects(exIdx, 2) = extra_objects(exIdx, 6) Then
+				extra_objects(exIdx, 5) = 0
+				extra_objects(exIdx, 0) = extra_objects(exIdx, 0) + 1
+				pattr(extra_objects(exIdx, 0), extra_objects(exIdx, 1)) = 4
+				pattr(extra_objects(exIdx, 0) - 1, extra_objects(exIdx, 1)) = 0
+			End If
+		Else
+			' Collision?
+			If x >= extra_objects(exIdx, 2) - 15 [AND] x <= extra_objects(exIdx, 2) + 15 Then
+				If y >= extra_objects(exIdx, 3) - 15 [AND] y <= extra_objects(exIdx, 3) + 15 Then
+					' Which type?
+					' 1->key 2->bolt 3->block 4->life...
+					Select Case extra_objects(exIdx, 4)
+						' Keys
+						Case 1:
+							playSound 5
+							plKeys = plKeys + 1
+							hud
+							extra_objects(exIdx, 4) = 0
+							moveSprite sprExtra(i), 0, 0
+							pattr(extra_objects(exIdx, 0), extra_objects(exIdx, 1)) = 0
+							Exit Select
+
+						' Bolts
+						Case 2:
+							If plKeys = 0 Then
+								playSound 10
+								'plVX = 32768 - plVX + 32768
+								'plVY = 32768 - plVX + 32768
+								If plVX < 32768 Then
+									plVX = 32768 + 256
+								Else If plVX > 32768
+									plVX = 32768 - 256
+								End If
+								If plVY < 32768 Then
+									plVY = 32768 + 256
+								Else If plVY > 32768
+									plVY = 32768 - 256
+								End If
+							Else
+								playSound 8
+								plKeys = plKeys - 1
+								hud
+								extra_objects(exIdx, 4) = 0
+								moveSprite sprExtra(i), 0, 0
+								pattr(extra_objects(exIdx, 0), extra_objects(exIdx, 1)) = 0
+							End If
+							Exit Select
+
+						' Blocks (pushable)
+						Case 3:
+							If x < extra_objects(exIdx, 2) - 10 [OR] extra_objects(exIdx, 0) = 0 Then
+								If attr(extra_objects(exIdx, 0) + 1, extra_objects(exIdx, 1)) < 8 Then
+									extra_objects(exIdx, 5) = 2
+									extra_objects(exIdx, 6) = extra_objects(exIdx, 2) + 16
+								End If
+							End If
+							If x >= extra_objects(exIdx, 2) + 11 [OR] extra_objects(exIdx, 0) = 19 Then
+								If attr(extra_objects(exIdx, 0) - 1, extra_objects(exIdx, 1)) < 8 Then
+									extra_objects(exIdx, 5) = 1
+									extra_objects(exIdx, 6) = extra_objects(exIdx, 2) - 16
+								End If
+							End If
+							Exit Select
+
+						' Life
+						Case 4:
+							playSound 6
+							plLife = plLife + 1
+							hud
+							extra_objects(exIdx, 4) = 0
+							moveSprite sprExtra(i), 0, 0
+							pattr(extra_objects(exIdx, 0), extra_objects(exIdx, 1)) = 0
+							Exit Select
+					End Select
+				End If
+			End If
+		End If
+	Next i
+End Sub
+
+'' Draws the a
+'' Hud is made of sprites
+Declare Sub hud()
+	print_num2 1, plLife
+	print_num2 4, plNenem - plKilled
+	print_num1 7, plKeys
+End Sub
+
+'' Player movement. Reads joypad and does stuff
+Declare Sub move_player()
+
+	' Ugly fixtures
+	'If plX < 8192 Then plX = 8192
+
+	'' Flicker counter
+	' plState.1 == flicker
+	If plFlicker = 1 Then
+		plCtr = plCtr - 1
+		If plCtr = 0 Then
+			plFlicker = 0
+		End If
+	End If
+
+	'' Read joypad
+	j = joypad();
+
+	'' Vertical
+
+	If plVY < player_max_vy_fall Then
+		plVY = plVY + player_g
+	Else
+		plVY = player_max_vy_fall
+	End If
+
+	If plGotten = 1 Then
+		plVY = 32768
+	End If
+
+	plY = plY - 32768 + plVY
+
+	x = (plX >> 6) - 128
+	y = (plY >> 6) - 128
+	xx = x >> 4
+	yy = y >> 4
+	possee = 0
+
+	If plVY < 32768 Then
+		If (attr(xx, yy) > 4) [OR] ((x and 15) <> 0 [AND] (attr(xx + 1, yy) > 4)) Then
+			plVY = 32768
+			plY = (((yy + 1) << 4) + 128) << 6
+		End If
+	ElseIf plVY > 32768 [AND] ((y and 15) < 8) Then
+		If (attr(xx, yy + 1) > 1) [OR] ((x and 15) <> 0 [AND] (attr(xx + 1, yy + 1) > 1)) Then
+			plVY = 32768
+			plY = ((yy << 4) + 128) << 6
+			possee = 1
+		End If
+	End If
+
+	y = (plY >> 6) - 128
+	yy = y >> 4
+
+	'if j.4 Then showattr
+
+	' Jump
+	If j.4 [OR] j.5 [OR] j.6 Then
+		If (plVY = 32768 [AND] plJumping = 0 [AND] (possee = 1 [OR] plGotten = 1)) Then
+			plJumping = 1
+			plJumpCtr = 0
+			playSound 1
+			plVY = 32768 - player_jump_ini
+		ElseIf plJumping = 1 Then
+			'plVY = plVY - (player_jump_incr - (plJumpCtr >> 2))
+			jmpAmnt = player_jump_incr - (plJumpCtr << 2)
+			plVY = plVY - jmpAmnt
+			If (plVY < 32768 - player_max_vy_jump) Then plVY = 32768 - player_max_vy_jump
+			'locate 3+plJumpCtr, 2: Print plJumpCtr;" ";jmpAmnt;" ";plVY
+			plJumpCtr = plJumpCtr + 1
+			If plJumpCtr >= 8 Then
+				plJumping = 0
+			End If
+		End If
+	Else
+		plJumping = 0
+	End If
+
+	y = (plY >> 6) - 128
+	yy = y >> 4
+
+	'' Horizontal
+
+	' Slippery when wet?
+	slipping = 0
+	slippery = 0
+	ax = player_ax
+	fx = player_fx
+	If (y And 15) = 0 Then
+		If ((attr(xx, yy + 1) = 3) [OR] (attr(xx, yy + 1) = 7)) [OR] ((x and 15) <> 0 [AND] (attr(xx + 1, yy + 1) = 3 [OR] attr(xx + 1, yy + 1) = 7)) Then
+			ax = 2
+			fx = 1
+			slippery = 1
+		End if
+	End If
+
+	If j.2 Then
+		If plVX > 32768 - player_max_vx Then
+			plFacing = 7
+			plVX = plVX - ax
+		End If
+	ElseIf j.3 Then
+		If plVX < 32768 + player_max_vx Then
+			plFacing = 0
+			plVX = plVX + ax
+		End If
+	Else
+		' friction
+		slipping = 1
+		If plVX > 32768 Then
+			plVX = plVX - fx
+			If plVX < 32768 Then plVX = 32768
+		ElseIf plVX < 32768 Then
+			plVX = plVX + fx
+			If plVX > 32768 Then plVX = 32768
+		EndIf
+	End if
+
+	'' Conveyors
+	olPlX = plX
+
+	If (y and 15) = 0 Then
+		If (attr(xx, yy + 1) = 5) [OR] ((x and 15) <> 0 [AND] (attr(xx + 1, yy + 1) = 5)) Then
+			plX = plX - player_conveyor
+		End If
+		If (attr(xx, yy + 1) = 6) [OR] ((x and 15) <> 0 [AND] (attr(xx + 1, yy + 1) = 6)) Then
+			plX = plX + player_conveyor
+		End If
+	End If
+
+	plX = plX - 32768 + plVX
+
+	x = (plX >> 6) - 128
+	xx = x >> 4
+
+	If plX < olPlX Then
+		If (attr(xx, yy) > 4) [OR] ((y and 15) <> 0 [AND] (attr(xx, yy + 1) > 4)) Then
+			plVX = 32768
+			plX = (((xx + 1) << 4) + 128) << 6
+		End If
+	End If
+	If plX > olPlX Then
+		If (attr(xx + 1, yy) > 4) [OR] ((y and 15) <> 0 [AND] (attr(xx + 1, yy + 1) > 4)) Then
+			plVX = 32768
+			plX = ((xx << 4) + 128) << 6
+		End If
+	End If
+
+	x = (plX >> 6) - 128
+	xx = x >> 4
+
+	' Evil tile!
+
+	If plVY > 32768 Then
+		If (attr(xx, yy + 1) = 1) [OR] ((x and 15) <> 0 [AND] (attr(xx + 1, yy + 1) = 1)) Then
+			plVY = 32768 - 256
+			plY = ((yy << 4) + 128) << 6
+			one_life_less
+			playSound 4
+		End If
+	Else
+		If (attr(xx, yy) = 1) [OR] ((x and 15) <> 0 [AND] (attr(xx + 1, yy) = 1)) Then
+			If plVY <> 32768 Then
+				plVY = 32768 + 256
+				plY = (((yy + 1) << 4) + 128) << 6
+			Else
+				plVY = 32768 - 256
+			End If
+			one_life_less
+			playSound 4
+		End If
+	End If
+	y = (plY >> 6) - 128
+	yy = y >> 4
+	If plX < olPlX Then
+		If (attr(xx, yy) = 2) [OR] ((y and 15) <> 0 [AND] (attr(xx, yy + 1) = 1)) Then
+			plVX = 32768 + 128
+			'plX = (((xx + 1) << 4) + 128) << 6
+			one_life_less
+			playSound 4
+		End If
+	ElseIf plX > olPlX Then
+		If (attr(xx + 1, yy) = 2) [OR] ((y and 15) <> 0 [AND] (attr(xx + 1, yy + 1) = 1)) Then
+			plVX = 32768 - 128
+			'plX = ((xx << 4) + 128) << 6
+			one_life_less
+			playSound 4
+		End If
+	Else
+
+	End If
+
+	' Which sprite?
+	If plFlicker = 1 [AND] plCtr > 90 Then
+		propSprite sprPl, pl_spr_offs(plFacing + 6), 3
+	Else
+		If (plVY <> 32768 [OR] possee = 0) [AND] plGotten = 0 Then
+			propSprite sprPl, pl_spr_offs(plFacing + 5), 3
+		ElseIf plVX <> 32768 Then
+			If slippery Then
+				If slipping Then
+					plSubFrame = (plSubFrame + 1) And 3
+					If plSubFrame = 0 Then propSprite sprPl, pl_spr_offs(plFacing + 2), 3
+					'plSubFrame = 0
+				Else
+					plSubFrame = (plSubFrame + 1) And 3
+					If plSubFrame = 3 Then plFrame = (plFrame + 1) And 3
+					propSprite sprPl, pl_spr_offs(plFacing + plFrame), 3
+				End If
+			Else
+				plSubFrame = 0
+				plFrame = 1 + (xx % 4)
+				propSprite sprPl, pl_spr_offs(plFacing + plFrame), 3
+			End If
+		Else
+			propSprite sprPl, pl_spr_offs(plFacing), 3
+		EndIf
+	EndIf
+End Sub
+
+'' Checks for collisions between player and baddies
+Declare Sub collisions
+	x = plX >> 6
+	y = plY >> 6
+
+	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:res3
+	For i = 0 To 3
+		enIdx = enoffs + i
+		If enemies(enIdx, 8) > 0 [AND] enemies(enIdx, 8) < 8 Then
+			If enemies(enIdx, 9) <> 0 [AND] enemies(enIdx, 9) <> 3 Then
+
+				If GAME_B <> 1 [OR] resnOn = 1 Then
+					If plVY > 32768 Then
+						If x >= enemies(enIdx, 0) - 15 [AND] x <= enemies(enIdx, 0) + 15 Then
+							If y >= enemies(enIdx, 1) - 23 [AND] y <= enemies(enIdx, 1) - 12 Then
+								' Kill
+								plKilled = plKilled + 1
+								enemies(enIdx, 9) = 3 ' State = dying
+								enemies(enIdx, 10) = 60 ' Count = 1 second
+								hud
+								plVY = 32608 ' 32768 - 160
+
+								' Throw heart?
+								If (plKilled And heartFreq) = 0 Then
+									heartAct = 1
+									heartX = 448
+									heartY = 240
+									heartNPant = n_pant
+								End If
+
+								playSound 7
+
+								Continue For ' next iteration!
+							End If
+						End If
+					End If
+				End If
+
+				' Normal collision: kill player
+
+				If x >= enemies(enIdx, 0) - 12 [AND] x <= enemies(enIdx, 0) + 12 Then
+					If y >= enemies(enIdx, 1) - 16 [AND] y <= enemies(enIdx, 1) + 12 Then
+						if plFlicker = 0 Then
+							plVY = 32448 ' 32768 - 320
+						EndIf
+
+						one_life_less
+					End If
+				End If
+
+			End If
+		End If
+	Next i
+End Sub
+
+'' Manages the interaction between the player and moving platforms
+Declare Sub move_with_platforms
+	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:ct2
+	plGotten = 0
+
+	For i = 0 To 3
+		enIdx = enoffs + i
+		t = enemies(enIdx, 8)
+		If t = 8 Then
+			x = plX >> 6
+			y = plY >> 6
+
+			If x >= enemies(enIdx, 0) - 15 [AND] x <= enemies(enIdx, 0) + 15 Then
+				' Vert
+				If enemies(enIdx, 7) <= 32768 Then
+					If y >= enemies(enIdx, 1) - 16 [AND] y <= enemies(enIdx, 1) - 8 Then
+						If plVY > 32768 - player_jump_incr Then
+							plGotten = 1
+							plY = (enemies(enIdx, 1) - 16) << 6
+							plVY = 32768
+							' Collide with background?
+							xx = (x - 128) >> 4
+							yy = (y - 128) >> 4
+							If attr(xx, yy) > 4 [OR] ((x And 15) <> 0 [AND] attr(xx+1, yy) > 4) Then
+								plY = (128 + ((yy + 1) << 4)) << 6
+							End If
+						End If
+					End If
+				Else If enemies(enIdx, 7) > 32768 Then
+					If y >= enemies(enIdx, 1) - 20 [AND] y <= enemies(enIdx, 1) - 8 Then
+						If plVY >= 32768 Then
+							plGotten = 1
+							plY = (enemies(enIdx, 1) - 16) << 6
+							plVY = 32768
+							' Collide with background?
+							xx = (x - 128) >> 4
+							yy = (y - 128) >> 4
+							If attr(xx, yy + 1) > 3 [OR] ((x And 15) <> 0 [AND] attr(xx + 1, yy + 1) > 3) Then
+								plY = (128 + (yy << 4)) << 6
+							End If
+						End If
+					End If
+				End If
+
+				' Horz
+				If enemies(enIdx, 6) < 32768 Then
+					If y >= enemies(enIdx, 1) - 16 [AND] y <= enemies(enIdx, 1) - 11 Then
+						If plVY >= 32768 Then
+							plGotten = 1
+							plY = (enemies(enIdx, 1) - 16) << 6
+							plVY = 32768
+							If GAME_B <> 1 [OR] resnOn = 0 Then
+								x = x + enemies(enIdx, 6)-32768
+								plX = x << 6
+
+								' Collide with background?
+								xx = (x - 128) >> 4
+								yy = (y - 128) >> 4
+								If attr(xx, yy) > 4 [OR] ((y And 15) <> 0 [AND] attr(xx, yy + 1) > 4) Then
+									plVX = 32768
+									plX = (128 + ((xx + 1) << 4)) << 6
+								End If
+							End If
+						End If
+					End If
+				Else If enemies(enIdx, 6) > 32768 Then
+					If y >= enemies(enIdx, 1) - 16 [AND] y <= enemies(enIdx, 1) - 11 Then
+						If plVY >= 32768 Then
+							plGotten = 1
+							plY = (enemies(enIdx, 1) - 16) << 6
+							plVY = 32768
+							If GAME_B <> 1 [OR] resnOn = 0 Then
+								x = x + enemies(enIdx, 6)-32768
+								plX = x << 6
+								' Collide with background?
+								xx = (x - 128) >> 4
+								yy = (y - 128) >> 4
+								If attr(xx + 1, yy) > 4 [OR] ((y And 15) <> 0 [AND] attr(xx + 1, yy + 1) > 4) Then
+									plVX = 32768
+									plX = (128 + (xx << 4)) << 6
+								End If
+							End If
+						End If
+					End If
+				End If
+			End If
+		End If
+	Next i
+End Sub
+
+'' Moves the enemies around.
+Declare Sub move_enems
+	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:ct2
+	For i = 0 To 3
+		enIdx = enoffs + i
+		' Enemy type
+		t = enemies(enIdx, 8)
+
+		' Which state?
+		' en:st: 0:off 1:normal 2:pursuing 3:dying
+		' "pursuing" not implemented in this game.
+		' No enemies pursue you here. Yet.
+		Select Case enemies(enIdx, 9)
+			Case 0:
+				' Off
+				Exit Select
+			Case 1:
+				' Normal (roaming)
+				If (t > 0 [AND] t < 5) [OR] t = 8 Then
+					If GAME_B <> 1 [OR] resnOn = 0 Then
+						' linear movement, limited movement.
+						enemies(enIdx, 0) = enemies(enIdx, 0) + enemies(enIdx, 6) - 32768
+						If enemies(enIdx, 0) = enemies(enIdx, 2) [OR] enemies(enIdx, 0) = enemies(enIdx, 4) Then
+							' Change sign...
+							'enemies(enIdx, 6) = 32768 - enemies(enIdx, 6) + 32767
+							enemies(enIdx, 6) = 32768 - enemies(enIdx,6) + 32768
+						End If
+
+						enemies(enIdx, 1) = enemies(enIdx, 1) + enemies(enIdx, 7) - 32768
+						If enemies(enIdx, 1) = enemies(enIdx, 3) [OR] enemies(enIdx, 1) = enemies(enIdx, 5) Then
+							' Change sign...
+							'enemies(enIdx, 6) = 32768 - enemies(enIdx, 6) + 32767
+							enemies(enIdx, 7) = 32768 - enemies(enIdx,7) + 32768
+						End If
+					End If
+
+					' Sprite frame
+					If t = 8 Then
+						enFrame = half_life
+						propSprite sprEn(i), pt_spr_offs(enFrame), 3
+					Else
+						If enemies(enIdx, 6) < 32768 Then
+							enFacing = 4
+						ElseIf enemies(enIdx, 6) > 32768 Then
+							enFacing = 0
+						Else
+							If enemies(enIdx, 7) < 32768 Then
+								enFacing = 4
+							Else
+								enFacing = 0
+							End If
+						End If
+
+						If t = 4 Then b = 2 else b = 4
+
+						If enemies(enIdx, 6) <> 32768 Then
+							enFrame = (enemies(enIdx, 0) >> b) % 4
+						Else
+							enFrame = (enemies(enIdx, 1) >> b) % 4
+						End If
+
+						propSprite sprEn(i), en_spr_offs((i << 3) + enFacing + enFrame), 3
+					End If
+
+				ElseIf t = 5 Then
+					'' Subaquatic-alike (amoeba)
+					If GAME_B <> 1 [OR] resnOn = 0 Then
+						r = rnd(5)
+						If r < 3 And enemies(enIdx, 0) < 144 Then r = 2
+						If r < 3 And enemies(enIdx, 0) > 416 Then r = 1
+						If r > 2 And enemies(enIdx, 1) < 160 Then r = 4
+						If r > 2 And enemies(enIdx, 1) > 304 Then r = 3
+						If r = 1 And enemies(enIdx, 0) > 128 Then enemies(enIdx, 0) = enemies(enIdx, 0) - 1
+						If r = 2 And enemies(enIdx, 0) < 432 Then enemies(enIdx, 0) = enemies(enIdx, 0) + 1
+						If r = 3 And enemies(enIdx, 1) > 128 Then enemies(enIdx, 1) = enemies(enIdx, 1) - 1
+						If r = 4 And enemies(enIdx, 1) < 320 Then enemies(enIdx, 1) = enemies(enIdx, 1) + 1
+					End If
+
+					' Sprite frame
+					enFrame = frame_counter % 7
+					propSprite sprEn(i), en_spr_offs((i << 3) + enFrame), 3
+
+				ElseIf t = 6 Then
+					If GAME_B <> 1 [OR] resnOn = 0 Then
+						'' Random weirdo
+						r = rnd(8)
+						nr = 1 + rnd(8)
+
+						' Horz
+						If enemies(enIdx, 10) = 0 Then
+							If enemies(enIdx, 0) < 144 Then r = 1
+							If enemies(enIdx, 0) > 416 Then r = 3
+							If r = 1 [OR] r = 2 Then
+								enemies(enIdx, 10) = nr << 4
+								enemies(enIdx, 6) = 32768 + r
+							ElseIf r = 3 [OR] r = 4 Then
+								enemies(enIdx, 10) = nr << 4
+								enemies(enIdx, 6) = 32768 - (r - 2)
+							End If
+						Else
+							enemies(enIdx, 10) = enemies(enIdx, 10) - 1
+							' Move?
+							xx = (enemies(enIdx, 0) - 128) >> 4
+							yy = (enemies(enIdx, 1) - 120) >> 4
+							If enemies(enIdx, 6) > 32768 Then
+								If ((enemies(enIdx, 0) And 15) <> 0 [OR] (attr(xx + 1, yy) < 8 [AND] ((enemies(enIdx, 1) And 15) = 0 [OR] attr(xx + 1, yy + 1) < 8))) Then
+									enemies(enIdx, 0) = enemies(enIdx, 0) + enemies(enIdx, 6) - 32768
+								Else
+									enemies(enIdx, 10) = 0
+								End If
+							Else
+								If ((enemies(enIdx, 0) And 15) <> 0 [OR] (attr(xx - 1, yy) < 8 [AND] ((enemies(enIdx, 1) And 15) = 0 [OR] attr(xx - 1, yy + 1) < 8))) Then
+									enemies(enIdx, 0) = enemies(enIdx, 0) + enemies(enIdx, 6) - 32768
+								Else
+									enemies(enIdx, 10) = 0
+								End If
+							End If
+
+							'If enemies(enIdx, 0) < 128 Then enemies(enIdx, 0) = 128
+							'If enemies(enIdx, 0) > 432 Then enemies(enIdx, 0) = 432
+							If enemies(enIdx, 0) < 160 Then enemies(enIdx, 0) = 160
+							If enemies(enIdx, 0) > 400 Then enemies(enIdx, 0) = 400
+						End If
+
+						' Vert
+						If enemies(enIdx, 11) = 0 Then
+							If enemies(enIdx, 1) < 160 Then r = 1
+							If enemies(enIdx, 1) > 304 Then r = 3
+							If r = 1 [OR] r = 2 Then
+								enemies(enIdx, 11) = nr << 4
+								enemies(enIdx, 7) = 32768 + r
+							ElseIf r = 3 [OR] r = 4 Then
+								enemies(enIdx, 11) = nr << 4
+								enemies(enIdx, 7) = 32768 - (r - 2)
+							End If
+						Else
+							enemies(enIdx, 11) = enemies(enIdx, 11) - 1
+							' Move?
+							xx = (enemies(enIdx, 0) - 128) >> 4
+							yy = (enemies(enIdx, 1) - 120) >> 4
+							If enemies(enIdx, 7) > 32768 Then
+								If ((enemies(enIdx, 1) And 15) <> 0 [OR] (attr(xx, yy + 1) < 8 [AND] ((enemies(enIdx, 0) And 15) = 0 [OR] attr(xx + 1, yy + 1) < 8))) Then
+									enemies(enIdx, 1) = enemies(enIdx, 1) + enemies(enIdx, 7) - 32768
+								Else
+									enemies(enIdx, 11) = 0
+								End If
+							Else
+								If ((enemies(enIdx, 1) And 15) <> 0 [OR] (attr(xx, yy - 1) < 8 [AND] ((enemies(enIdx, 0) And 15) = 0 [OR] attr(xx + 1, yy - 1) < 8))) Then
+									enemies(enIdx, 1) = enemies(enIdx, 1) + enemies(enIdx, 7) - 32768
+								Else
+									enemies(enIdx, 11) = 0
+								End If
+							End If
+
+							'If enemies(enIdx, 1) < 144 Then enemies(enIdx, 1) = 144
+							'If enemies(enIdx, 1) > 320 Then enemies(enIdx, 1) = 320
+							If enemies(enIdx, 1) < 176 Then enemies(enIdx, 1) = 176
+							If enemies(enIdx, 1) > 288 Then enemies(enIdx, 1) = 288
+						End If
+					End If
+
+					' Sprite frame
+					If enemies(enIdx, 6) < 32768 Then
+						enFacing = 4
+					Else
+						enFacing = 0
+					End If
+					enFrame = (enemies(enIdx, 0) >> 4) % 4
+					propSprite sprEn(i), en_spr_offs((i << 3) + enFacing + enFrame), 3
+
+				Else
+				End If
+
+				Exit Select
+
+			Case 2:
+				' Pursuing
+				Exit Select
+
+			Case 3:
+				' Dying
+				enemies(enIdx, 10) = enemies(enIdx, 10) - 1
+				If enemies(enIdx, 10) = 0 Then
+					enemies(enIdx, 9) = 0
+					enemies(enIdx, 8) = 0
+					moveSprite sprEn(i), 0, 0
+				End If
+				enFrame = (frame_counter >> 2) And 1
+				propSprite sprEn(i), ex_spr_offs(enFrame), 3
+				Exit Select
+
+		End Select
+	Next i
+End Sub
+
+' For some reason, I have to load this stuff HERE.
+' If I do it at the end of the code, the music will sound BAD.
+' And I mean BAD as in NASTY BAD.
+
+'' ----------------------------------------------------------------------------
+'' XGM Driver by Stef
+'' http://devster.proboards.com/thread/1071/add-music-sfx-game-driver
+'' ----------------------------------------------------------------------------
+
+declare asm sub z80_loadDriver()
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request.
+    move.w  #$100,($A11200)
+     
+    MOVE.L  #(Z80drv_end-Z80drv),D0
+    LEA     Z80drv,A0
+    MOVE.L  #$A00000,A1
+     
+@loop:
+    MOVE.B  (A0)+, (A1)+
+    DBRA    D0, @loop               ; load driver
+    
+    move.l  #$A01C00,a0             ; point to Z80 sample id table (first entry = silent sample)
+    move.l  #NULLpcm,d0             ; d0 = silent sample
+
+    lsr.l   #8,d0
+    move.b  d0,(a0)+                ; sample address
+    lsr.l   #8,d0
+    move.b  d0,(a0)+
+    move.b  #$01,(a0)+              ; sample length
+    move.b  #$00,(a0)    
+     
+    move.w  #$000,($A11200)         ; Start Z80 Reset
+    move.w  #$000,($A11100)         ; release the Z80 bus
+
+    move.l  #$A00102,a0             ; point to status
+
+@test_ready:
+    move.w  #100,d0                 ; 
+
+@wait:
+    DBRA    D0, @wait               ; wait a bit
+    
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)         ; End Z80 Reset
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+
+    move.b (a0),d0
+    move.w  #$000,($A11100)         ; release the Z80 bus
+    
+    btst   #7,d0                    ; not yet ready
+    beq    @test_ready
+end sub
+     
+declare asm function xgm_isPlayingMusic()
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP    
+
+    move.b  ($A00102),d0            ; get channel playing status
+    andi.l  #$40,d0                 ; keep play XGM bit only
+    
+    move.w  #$000,($A11100)         ; release the Z80 bus
+end function
+
+declare asm sub xgm_startPlayMusic()
+	; a1 should point on XGM music
+
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+    
+    move.l  a3,a0                   ; a0 = reserved $FC array for sample id table
+    moveq   #0,d0
+     
+@loop:                              ; prepare sample id table
+    move.w  d0,d1
+    add.w   d1,d1   
+    add.w   d1,d1
+    moveq   #0,d2   
+    move.w  0(a1,d1.w),d2           ; get sample addr in song bank table
+    rol.w   #8,d2                   ; revert endianess
+
+    cmp.w   #$FFFF,d2               ; is null sample ?
+    bne     @not_null
+    
+    move.l  NULLpcm,d2
+    jmp     @addr_done
+    
+@not_null:
+    addq.w  #1,d2                   ; add offset
+    lsl.l   #8,d2                   ; pass to 24 bits
+    add.l   a1,d2                   ; transform to absolute address
+
+@addr_done
+    lsr.l   #8,d2                   ; get high byte
+    move.b  d2,0(a0,d1.w)
+    lsr.w   #8,d2                   ; get low byte
+    move.b  d2,1(a0,d1.w)
+    move.w  2(a1,d1.w),2(a0,d1.w)   ; copy sample length
+
+    addq.w  #1,d0
+    cmp.w   #$3F,d0
+    bne     @loop
+
+    move.l  #$A01C04,a2             ; destination of sample id table
+    lsl.w   #2,d0                   ; set size in bytes
+    subq.w  #1,d0
+     
+@sampleIdLoop:
+    move.b (a0)+,(a2)+
+    dbra   d0,@sampleIdLoop         ; load sample id table
+
+    move.l  a1,d0                   ; d0 = song address
+    add.l   #$100,d0                ; bypass sample id table
+
+    moveq   #0,d2
+    move.w  $FC(a1),d2              ; get sample data size
+    rol.w   #8,d2                   ; revert endianess
+    lsl.l   #8,d2                   ; pass to 24 bits
+
+    add.l   d2,d0                   ; bypass samples data
+    addq.l  #4,d0                   ; bypass music data size field
+    
+    move.l  #$A00104,a2             ; XGM base parameters address
+
+    move.b  d0,0(a2)                ; low byte
+    lsr.l   #8,d0
+    move.b  d0,1(a2)                ; med low byte
+    lsr.l   #8,d0
+    move.b  d0,2(a2)                ; med high byte
+    lsr.l   #8,d0
+    move.b  d0,3(a2)                ; high byte
+    
+    or.b    #$40,($A00100)          ; send play XGM command
+
+    move.w  #$000,($A11100)         ; release the Z80 bus    
+end sub
+
+declare asm sub xgm_resumePlayMusic()
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP    
+    
+    or.b    #$20,($A00100)          ; send resume play command
+
+    move.w  #$000,($A11100)         ; release the Z80 bus
+end sub
+
+declare asm sub xgm_stopPlayMusic()
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP    
+    
+    or.b    #$10,($A00100)          ; send stop play command
+
+    move.w  #$000,($A11100)         ; release the Z80 bus
+end sub
+
+declare asm function xgm_isPlayingPCM(d0.w as integer)
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP    
+
+    and.b   ($A00102),d0            ; get channel playing status
+    
+    move.w  #$000,($A11100)         ; release the Z80 bus
+end function
+
+declare asm sub xgm_playPCM()
+	; a1 should point on PCM sample
+	; d1 should contains PCM length
+	; d2 should contains channel and priority informations: (prio << 4) | channel
+
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+    
+    move.l  (__LONG_pcmid),d0
+    lsl.l   #2,d0
+    lea     $A01C00,a0
+    adda.l  d0,a0                   ; a0 point on id table entry
+    
+    move.l  a1,d0                   ; d0 = sample address
+    
+    lsr.l   #8,d0                   ; get sample address (high byte)
+    move.b  d0,(a0)+
+    lsr.w   #8,d0                   ; get sample address (low byte)
+    move.b  d0,(a0)+
+    lsr.l   #8,d1                   ; get sample length (high byte)
+    move.b  d1,(a0)+
+    lsr.w   #8,d1                   ; get sample length (low byte)
+    move.b  d1,(a0)+
+    
+    move.l  d2,d0
+    and.l   #3,d0                   ; d0 = channel number
+    
+    lea     $A00100,a0
+    moveq   #1,d1    
+    lsl.l   d0,d1                   ; d1 = channel shift command
+    or.b    d1,(a0)                 ; set PCM play command
+    
+    lea     $A00108,a0   
+    add.l   d0,d0
+    adda.l  d0,a0                   ; a0 point on channel info
+
+    move.l  d2,d0
+    lsr.l   #4,d0
+    and.l   #$F,d0                  ; d0 = priority
+    
+    move.b  d0,(a0)+                ; set priority
+    
+    move.l  (__LONG_pcmid),d0       ; d0 = PCM id
+
+    move.b  d0,(a0)                 ; set PCM id
+
+    addq.l  #1,d0  
+    and.l   #$FF,d0                
+    or.l   #$40,d0                  ; id < 0x40 are reserved for music
+    move.l  d0,(__LONG_pcmid)       ; pass to next id
+
+    move.w  #$000,($A11100)         ; release the Z80 bus
+end sub
+
+declare asm sub xgm_stopPCM()
+	; d2 should contains channel number
+	
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+        
+    move.l  d2,d0
+    and.l   #3,d0                   ; d0 = channel number
+    
+    lea     $A00100,a0
+    moveq   #1,d1    
+    lsl.l   d0,d1                   ; d1 = channel shift command
+    or.b    d1,(a0)                 ; set PCM play command
+    
+    lea     $A00108,a0   
+    add.l   d0,d0
+    adda.l  d0,a0                   ; a0 point on channel info
+
+    moveq   #0,d0
+    move.b  d0,(a0)+                ; set priority
+    move.b  d0,(a0)                 ; set PCM id
+
+    move.w  #$000,($A11100)         ; release the Z80 bus
+end sub
+
+
+'' These files are the OGT.
+'' XGM music and PCM sound effects.
+
+    asm
+    
+Z80drv:                             ; Z80 XGM driver
+    INCBIN  "xgm\z80_xgm.bin"
+Z80drv_end:
+
+    align 256
+NULLpcm:
+    INCBIN  "xgm\null.raw"
+NULLpcm_end:
+
+;; OGT by Davidian
+
+    align 256
+XgmNtscCuts:
+	INCBIN "..\..\Perils\ogt\ntsc_cuts.xgc"
+
+	align 256
+XgmNtscEnding:
+	INCBIN "..\..\Perils\ogt\ntsc_ending.xgc"
+
+	align 256
+XgmNtscFinalBattleBonus:
+	INCBIN "..\..\Perils\ogt\ntsc_final_battle_bonus.xgc"
+
+	align 256
+XgmNtscFsclear:
+	INCBIN "..\..\Perils\ogt\ntsc_fsclear.xgc"
+
+	align 256
+XgmNtscGover:
+	INCBIN "..\..\Perils\ogt\ntsc_gover.xgc"
+
+	align 256
+XgmNtscSclear:
+	INCBIN "..\..\Perils\ogt\ntsc_sclear.xgc"
+
+	align 256
+XgmNtscStage01:
+	INCBIN "..\..\Perils\ogt\ntsc_stage_01.xgc"
+
+	align 256
+XgmNtscStage02:
+	INCBIN "..\..\Perils\ogt\ntsc_stage_02.xgc"
+
+	align 256
+XgmNtscStage03:
+	INCBIN "..\..\Perils\ogt\ntsc_stage_03.xgc"
+
+	align 256
+XgmNtscTitle:
+	INCBIN "..\..\Perils\ogt\ntsc_title.xgc"
+
+    align 256
+LOOPpcm:
+    INCBIN  "..\..\testxgm\loop.raw"
+LOOPpcm_end:
+
+;; SFX by Davidian
+
+	align 256
+PcmAh:
+	INCBIN "..\..\Perils\ogt\murcia\raw\ah.raw"
+PcmAh_end:
+
+	align 256
+PcmBlam:
+	INCBIN "..\..\Perils\ogt\murcia\raw\blam.raw"
+PcmBlam_end:
+
+	align 256
+PcmBolt:
+	INCBIN "..\..\Perils\ogt\murcia\raw\bolt.raw"
+PcmBolt_end:
+
+	align 256
+PcmCountDown:
+	INCBIN "..\..\Perils\ogt\murcia\raw\countdown.raw"
+PcmCountDown_end:
+
+	align 256
+PcmDaleFran:
+	INCBIN "..\..\Perils\ogt\murcia\raw\dalefran.raw"
+PcmDaleFran_end:
+
+	align 256
+PcmFinalCountdown:
+	INCBIN "..\..\Perils\ogt\murcia\raw\final_countdown.raw"
+PcmFinalCountdown_end:
+
+	align 256
+PcmHit:
+	INCBIN "..\..\Perils\ogt\murcia\raw\hit.raw"
+PcmHit_end:
+
+	align 256
+PcmJump:
+	INCBIN "..\..\Perils\ogt\murcia\raw\jump.raw"
+PcmJump_end:
+
+	align 256
+PcmKey:
+	INCBIN "..\..\Perils\ogt\murcia\raw\key.raw"
+PcmKey_end:	
+
+	align 256
+PcmLife:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\life.raw"
+PcmLife_end:	
+
+	align 256
+PcmNo:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\no.raw"
+PcmNo_end:	
+
+	align 256
+PcmObject:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\object.raw"
+PcmObject_end:	
+
+	align 256
+PcmPowerOff:
+	INCBIN "..\..\Perils\ogt\murcia\raw\power_off.raw"
+PcmPowerOff_end:	
+
+	align 256
+PcmSelect:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\select.raw"
+PcmSelect_end:	
+
+	align 256
+PcmSpike:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\spike.raw"
+PcmSpike_end:	
+
+	align 256
+PcmStart:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\start.raw"
+PcmStart_end:	
+
+    end asm
+
+
+'' And now more code. Beautiful.
+
+Declare Function select_level()
+	SetGFXPlane SCROLL_B
+	Cls
+	SetGFXPlane SCROLL_A
+	Cls
+	Reload debug_text_1
+	titlePrnTxt 5, 8
+	Reload debug_text_3
+	titlePrnTxt 7, 10
+	Reload debug_text_2
+	titlePrnTxt 7, 12
+	Reload debug_text_4
+	titlePrnTxt 7, 14
+
+	DrawTilesInc2 96, 0, 18, 10, 2
+
+	dothis = 1
+	pressed = 0
+	res = 1
+	Do
+		moveSprite sprHeart, 128 + 40, 128 + (8 * 8) + (res * 16)
+		j = joypad()
+		If j.0 [AND] res > 1 [AND] pressed <> 1 Then
+			pressed = 1
+			res = res - 1
+			playSound 13
+		End If
+		If j.1 [AND] res < 3 [AND] pressed <> 2 Then
+			pressed = 2
+			res = res + 1
+			playSound 13
+		End If
+		If j.4 [OR] j.5 [OR] j.6 [OR] j.7 Then dothis = 0
+		If j = 0 Then pressed = 0
+	Loop While dothis = 1
+	moveSprite sprHeart, 0, 0
+	playSound 12
+	Return res
+End Select
+
+'' Does resonators
+Declare Sub do_resonators()
+	x = plX >> 6
+	y = plY >> 6
+
+	If resnOn = 0 Then
+		If x >= resnX - 15 [AND] x <= resnX + 15 Then
+			If y >= resnY - 24 [AND] y <= resnY - 16 Then
+				If plVY > 32768 Then
+					resnOn = 1
+					resnCt = 9
+					resnCtFrames = 0
+					propSprite sprResn, 1097, 3
+					set_pal_bw
+					plVY = 32608
+					playSound 14
+				End If
+			End If
+		End If
+	Else
+		' Press but no action
+		If x >= resnX - 15 [AND] x <= resnX + 15 Then
+			If y >= resnY - 24 [AND] y <= resnY - 16 Then
+				If plVY > 32768 Then
+					plVY = 32608
+				End If
+			End If
+		End If
+
+		' Paint countdown
+		propSprite sprResnCd, cd_spr_offs(resnCt), 0
+		moveSprite sprResnCd, resnX + 4, resnY + 8
+
+		resnCtFrames = resnCtFrames + 1
+		If resnCtFrames >= resnFrames Then
+			resnCtFrames = 0
+			If resnCt > 0 Then
+				resnCt = resnCt - 1
+				playSound 15
+			Else
+				resnOn = 0
+				propSprite sprResn, 1088, 3
+				moveSprite sprResnCd, 0, 0
+				set_pal_nm
+				playSound 16
+			End If
+		End If
+	End If
+End Sub
+
+Declare Sub set_pal_bw()
+	Select Case level
+		Case 1:
+			Pallettes palletteData_setfg_1_bw, 1, 0, 16
+			Pallettes palletteData_setbg_1_bw, 2, 0, 16
+			Pallettes palletteData_spriteset_1_bw, 3, 0, 16
+			Exit Select
+		Case 2:
+			Pallettes palletteData_setfg_2_bw, 1, 0, 16
+			Pallettes palletteData_setbg_2_bw, 2, 0, 16
+			Pallettes palletteData_spriteset_2_bw, 3, 0, 16
+			Exit Select
+		Case 3:
+			Pallettes palletteData_setfg_3_bw, 1, 0, 16
+			Pallettes palletteData_setbg_3_bw, 2, 0, 16
+			Pallettes palletteData_spriteset_3_bw, 3, 0, 16
+			Exit Select
+	End Select
+End Sub
+
+Declare Sub set_pal_nm()
+	Select Case level
+		Case 1:
+			Pallettes palletteData_setfg_1, 1, 0, 16
+			Pallettes palletteData_setbg_1, 2, 0, 16
+			Pallettes palletteData_spriteset_1, 3, 0, 16
+			Exit Select
+		Case 2:
+			Pallettes palletteData_setfg_2, 1, 0, 16
+			Pallettes palletteData_setbg_2, 2, 0, 16
+			Pallettes palletteData_spriteset_2, 3, 0, 16
+			Exit Select
+		Case 3:
+			Pallettes palletteData_setfg_3, 1, 0, 16
+			Pallettes palletteData_setbg_3, 2, 0, 16
+			Pallettes palletteData_spriteset_3, 3, 0, 16
+			Exit Select
+	End Select
+End Sub
+
+'' Load the correct sprite frames for enemies from ROM to VRAM
+'' (based on enemy type in current screen)
+Declare Sub load_spr_tiles(n_enem As Integer, n_sprite As Integer)
+	' Loads 72 tiles into n_enem tileset
+	Local vram_offset As Integer
+	Local tileset_offset As Integer
+	vram_offset = 620 + (n_enem * 72)
+	tileset_offset = 108 + (n_sprite * 72)
+	'Select Case level
+	'	Case 1:
+			LoadTiles tileData_spriteset_1, 72, vram_offset, tileset_offset
+	'		Exit Select
+	'	Case 2:
+	'		LoadTiles tileData_spriteset_3, 72, vram_offset, tileset_offset
+	'		Exit Select
+	'	Case 3:
+	'		LoadTiles tileData_spriteset_2, 72, vram_offset, tileset_offset
+	'		Exit Select
+	'End Select
+End Sub
+
+'' Draws a tile layer. Auxiliary to draw_scr.
+Declare Sub draw_layer(pal As Integer, beh As Integer)
+	' Point to current screen:
+	offsetL& = 260 * n_pant
+	DataPtr& = DataPtr&()+offsetL&
+	estrujIdx = 0
+
+	' Draw 260 tiles:
+	x = 0
+	y = 0
+	idx = 0
+	For tilesctr = 1 To 260
+		Read tile
+		If beh = 1 Then
+			pattr(x, y) = behaviours(tile)
+			'' Detect estrujator
+			If estrujs_on = 1 Then
+				If tile >= 43 [AND] tile <= 45 Then
+					' 0:x 1:y 2:state 3:steps 4:ct 5:maxct 6:aux
+					estruj(estrujIdx, 0) = x + x
+					estruj(estrujIdx, 1) = 3 + y + y
+					estruj(estrujIdx, 2) = 0
+					estruj(estrujIdx, 3) = 0
+					estruj(estrujIdx, 4) = 0
+					estruj(estrujIdx, 5) = 25 * (tile - 42)
+					estrujIdx = estrujIdx + 1
+				End If
+			End If
+		End If
+		tile = tile << 2
+		DrawTilesInc 256 + tile + Pallette (pal), x + x, 1 + y + y, 2, 2
+
+		x = x + 1
+		If x = 20 Then
+			x = 0
+			y = y + 1
+		End If
+	Next tilesctr
+End Sub
+
+Declare Sub move_estruj
+	For i = 0 To 7
+		' 0:x 1:y 2:state 3:steps 4:ct 5:maxct 6:aux
+		If estruj(i, 2) = 0 Then
+
+			' 256 + 47*4 = 444
+			DrawTilesInc 444 + Pallette (1), estruj(i, 0), estruj(i, 1), 2, 2
+			xx = estruj(i, 0) >> 1
+			yy = (estruj(i, 1) - 1) >> 1
+			' pattr(xx, yy) = 0
+			estruj(i, 4) = estruj(i, 4) + 1
+			If estruj(i, 4) >= estruj(i, 5) Then
+				estruj(i, 2) = 1
+				estruj(i, 3) = 0
+			End If
+		ElseIf estruj(i, 2) = 1 Then
+			estruj(i, 3) = estruj(i, 3) + 1
+			For tr = 0 To estruj(i, 3) - 1
+				DrawTilesInc 440 + Pallette (1), estruj(i, 0), estruj(i, 1) + tr, 2, 1
+			Next tr
+			DrawTilesInc 444 + Pallette (1), estruj(i, 0), estruj(i, 3) + estruj(i, 1), 2, 2
+			xx = estruj(i, 0) >> 1
+			yy = (estruj(i, 3) + estruj(i, 1) - 1) >> 1
+			pattr(xx, yy) = 8
+			If estruj(i, 3) = 4 Then
+				estruj(i, 2) = 2
+				estruj(i, 4) = 0
+				playSound 9
+			End If
+		ElseIf estruj(i, 2) = 2 Then
+			estruj(i, 4) = estruj(i, 4) + 1
+			If estruj(i, 4) >= 25 Then
+				estruj(i, 2) = 3
+			End If
+		ElseIf estruj(i, 2) = 3 Then
+			xx = estruj(i, 0) >> 1
+			yy = (estruj(i, 3) + estruj(i, 1) - 1) >> 1
+			pattr(xx, yy) = 0
+
+			estruj(i, 3) = estruj(i, 3) - 1
+			If estruj(i,3)<>0 Then
+				For tr = 0 To estruj(i, 3) - 1
+					DrawTilesInc 440 + Pallette (1), estruj(i, 0), estruj(i, 1) + tr, 2, 1
+				Next tr
+			End If
+			DrawTilesInc 444 + Pallette (1), estruj(i, 0), estruj(i, 3) + estruj(i, 1), 2, 2
+
+			DrawTilesInc 256, estruj(i, 0), estruj(i, 3) + estruj(i, 1) + 2, 2, 1
+			If estruj(i, 3) = 0 Then
+				estruj(i, 2) = 0
+				estruj(i, 4) = 0
+			End If
+		End If
+		'' collisions
+		If estruj(i,2) = 1 Then
+			xb0 = 132 + (estruj(i, 0) << 3)
+			yb0 = 120 + (estruj(i, 1) << 3)
+			xb1 = xb0 + 8
+			yb1 = yb0 + ((2 + estruj(i, 3)) << 3) - 1
+			x = plX >> 6
+			y = plY >> 6
+			If x >= xb0 - 15 [AND] x <= xb1 Then
+				If y >= yb0 [AND] y <= yb1 Then
+					one_life_less
+					If plVX > 32768 Then
+						plVX = 32768 - 128
+					Else
+						plVX = 32768 + 128
+					End If
+					'playSound 2
+				End If
+			End If
+		End If
+	Next i
+End Sub
+
+'' Loads behaviours into RAM
+Declare Sub load_behaviours
+	DataPtr& = ptrBeh&
+	For i = 0 To 47
+		readInt behaviours(i)
+	Next i
+End Sub
+
+''
+Declare Sub scrolly_effect
+	For i = 1 To 26
+		Scroll2 Right, sine_table_16(((frame_counter) + i) And 63) - 4, i
+	Next i
+End Sub
+
+'' Returns cell behaviour
+Declare Function attr(atx, aty)
+	If atx > 19 [OR] aty > 12 Then Return 0
+	Return pattr(atx, aty)
+End Function
+
+'' Heart (simple) animation and collision check
+Declare Sub move_heart()
+	If heartAct = 0 Then Exit Sub
+	If half_life = 0 Then heartX = heartX - 1
+	r = Rnd(2)
+	If r = 0 Then
+		heartY = heartY - 1
+	ElseIf r = 1 Then
+		heartY = heartY + 1
+	End If
+	If heartX = 112 Then heartAct = 0
+
+	' Don't show nor collide if not on current screen
+	If heartNPant <> n_pant Then Exit Sub
+
+	moveSprite sprHeart, heartX, heartY
+
+	' Collide
+	x = plX >> 6
+	y = 8 + (plY >> 6)
+	If y >= heartY - 15 [AND] y <= heartY + 15 Then
+		If x >= heartX - 15 [AND] x <= heartX + 15 Then
+			heartAct = 0
+			moveSprite sprHeart, 0, 0
+			plLife = plLife + 1
+			hud
+			playSound 6
+		End If
+	End If
+End Sub
+
+'' Precalculates mx or my upon boundary values
+'' for lineal movement enemies
+Declare Function directn(dir_a, dir_b, dir_v)
+	If dir_a = dir_b Then
+		res = 32768
+	ElseIf dir_a > dir_b Then
+		res = 32768 + dir_v
+	Else
+		res = 32768 - dir_v
+	End If
+	Return res
+End Function
+
+'' Load extra objects (keys/bolts/blocks...) into RAM
+Declare Sub load_extra_objects()
+
+	DataPtr& = ptrExtra&
+
+	For i = 0 To 287
+		Read d	' type
+		extra_objects(i,4) = d
+
+		Read d	' x, rx
+		extra_objects(i,0) = d
+		extra_objects(i,2) = 128 + (d << 4)
+		Read d	' y, ry
+		extra_objects(i,1) = d
+		extra_objects(i,3) = 136 + (d << 4)
+	Next i
+End Sub
+
+'' Aux (used in hud)
+Declare Sub print_num1(pn1n As Integer, pn1v As Integer)
+	If pn1v > 9 Then pn1v = 9
+	propSprite hudSprs(pn1n), 128 + pn1v + pn1v, 0
+End Sub
+
+'' Aux (used in hud)
+Declare Sub print_num2(pn2n As Integer, pn2v As Integer)
+	If pn2v > 99 Then pn2v = 99
+	v1 = pn2v / 10
+	v2 = pn2v % 10
+	propSprite hudSprs(pn2n), 128 + v1 + v1, 0
+	propSprite hudSprs(pn2n + 1), 128 + v2 + v2, 0
+End Sub
+
+'' Detects the player getting out of the screen (flick screen)
+Declare Sub change_screen
+	j = joypad();
+
+'	If j.2 Then
+'		' 128 * 64 = 8192
+'		If plX <= 8192 Then
+'			nn_pant = n_pant - 1
+'			' (128 + 304) * 64
+'			plX = 27648
+'		End If
+'	ElseIf j.3 Then
+'		If plX >=27648 Then
+'			nn_pant = n_pant + 1
+'			plX = 8192
+'		End If
+'	End If
+
+	If plX < 8192 Then
+		nn_pant = n_pant - 1
+		plX = 27648
+		Exit Sub
+	End If
+	If plX > 27648 Then
+		nn_pant = n_pant + 1
+		plX = 8192
+		Exit Sub
+	End If
+
+	If plVY < 32768 [AND] plY <= 8192 Then
+		nn_pant = n_pant - #map_w
+		' (128 + 192) * 64
+		plY = 20480 - 256
+		Exit Sub
+	End If
+	If plVY > 32768 [AND] plY >= 20480 Then
+		nn_pant = n_pant + #map_w
+		plY = 8192
+		Exit Sub
+	End If
+End Sub
+
+'' Substracts one life and makes the player flicker
+Declare Sub one_life_less()
+	If plFlicker = 0 Then
+		plFlicker = 1
+		plCtr = 120
+		plLife = plLife - 1
+		hud
+		playSound 2
+	End If
+End Sub
+
+Declare Sub showattr
+	For say = 0 To 12
+		For sax = 0 To 19
+			DrawTile 48 + pattr(sax, say), sax+sax, 1 + say+say
+		Next sax
+	Next say
+End Sub
+
+'' Fixes movable stuff when changing screens
+Declare Sub fix_movables
+	' Movable blocks
+	' 0:x 1:y 2:rx 3:ry 4:type 5:state{0 idle, 1 moving, ...} 6:dx
+	For fix_i = 0 To 7
+		exIdx = exoffs + fix_i
+		If extra_objects(exIdx, 5) <> 0 Then
+			extra_objects(exIdx, 5) = 0
+			extra_objects(exIdx, 2) = extra_objects(exIdx, 0) << 4
+		End If
+	Next fix_i
+
+	' Dying enemies
+	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:ct2
+	For fix_i = 0 To 3
+		enIdx = enoffs + fix_i
+		If enemies(enIdx, 9) = 3 Then
+			enemies(enIdx, 9) = 0
+			enemies(enIdx, 8) = 0
+		End If
+	Next fix_i
+
+	'' Heart
+	moveSprite sprHeart, 0, 0
+End Sub
+
+'' Prepares level, sets up pointers, loads graphics and pals,
+'' loads structures into RAM, etc.
+Declare Sub prepare_level
+	Select Case level
+		Case 1:
+			estrujs_on = 0
+			GAME_B = 1
+
+			' Pointers
+			ptrMap0& = LblPtr&(map_layer_0_1)
+			ptrMap1& = LblPtr&(map_layer_1_1)
+			ptrExtra& = LblPtr&(map_extra_1)
+			ptrEnems& = LblPtr&(enemy_Data_1)
+			ptrBeh& = LblPtr&(behaviours_Data_1)
+			ptrResn& = LblPtr&(resonator_Data_1)
+
+			' Load palettes
+			Pallettes palletteData_setfg_1, 1, 0, 16
+			Pallettes palletteData_setbg_1, 2, 0, 16
+			Pallettes palletteData_spriteset_1, 3, 0, 16
+
+			' 256 - onwards: tiles bg (192) & fg (64)
+			LoadTiles tileData_setfg_1, 192, 256
+			LoadTiles tileData_setbg_1, 64, 448
+
+			' 512 - onwards: sprites (X)
+			' 108 tiles for main characters.
+			' 72x3 = 288 tiles reserved for four enemies
+			' 18 tiles for two explosion frames (offset 540 in global set)
+			' 18 tiles for two platform frames (right after)
+			' 72 tiles for game over (offset 576 in global set; load to 944)
+			' 45 tiles for great!! (offset 648 in global set; load to 1016
+			' 27 tiles for floating dirty animation (offset 693 in global set; load to 1061
+			' 18 tiles for resonator OFF/ON (offset 720 in global set; load to 1088)
+			' 27 tiles for hit frames (offset 738 in global set; load to 1106)
+			LoadTiles tileData_spriteset_1, 108, 512
+			LoadTiles tileData_spriteset_1, 36, 908, 540
+			LoadTiles tileData_spriteset_1, 72, 944, 576
+			LoadTiles tileData_spriteset_1, 45, 1016, 648
+			LoadTiles tileData_spriteset_1, 27, 1061, 693
+			LoadTiles tileData_spriteset_1, 18, 1088, 720
+			loadTiles tileData_spriteset_1, 27, 1106, 738
+
+			' In sum:
+			' Player frames at 512
+			' Enemy frames at 620, 692, 764 and 836
+			' Explosion frames at 908 and 917.
+			' Platform frames at 926 and 935
+			' Game Over at 944
+			' Great! At 1016
+			' Dirty at 1061
+			' Resonator at 1088
+			' Hit at 1106
+
+			s_pant = 30
+			plX = ((1 << 4) + 128) << 6
+			plY = ((9 << 4) + 128) << 6
+			heartFreq = 7
+			plNenem = 33
+
+			' Music
+
+			'Reload musicDataLevel1	'' %% Insert which track here
+			'Gosub tfdPlayInit
+
+			Exit Select
+
+		Case 2:
+			estrujs_on = 1
+			GAME_B = 0 '''''
+
+			ptrMap0& = LblPtr&(map_layer_0_2)
+			ptrMap1& = LblPtr&(map_layer_1_2)
+			ptrExtra& = LblPtr&(map_extra_2)
+			ptrEnems& = LblPtr&(enemy_Data_2)
+			ptrBeh& = LblPtr&(behaviours_Data_2)
+			ptrResn& = LblPtr&(resonator_Data_2)
+			Pallettes palletteData_setfg_2, 1, 0, 16
+			Pallettes palletteData_setbg_2, 2, 0, 16
+			Pallettes palletteData_spriteset_2, 3, 0, 16
+			LoadTiles tileData_setfg_2, 192, 256
+			LoadTiles tileData_setbg_2, 64, 448
+			LoadTiles tileData_spriteset_1, 108, 512
+			LoadTiles tileData_spriteset_1, 36, 908, 540
+			LoadTiles tileData_spriteset_1, 72, 944, 576
+			LoadTiles tileData_spriteset_1, 45, 1016, 648
+			LoadTiles tileData_spriteset_1, 27, 1061, 693
+			LoadTiles tileData_spriteset_1, 18, 1088, 720
+			loadTiles tileData_spriteset_1, 27, 1106, 738
+			s_pant = 5
+			plX = ((4 << 4) + 128) << 6
+			plY = ((4 << 4) + 128) << 6
+			heartFreq = 3
+			plNenem = 90
+			'Reload musicDataLevel3	'' %% Insert which track here
+			'Gosub tfdPlayInit
+			Exit Select
+
+		Case 3:
+			estrujs_on = 0
+			GAME_B = 0 '''''
+
+			ptrMap0& = LblPtr&(map_layer_0_3)
+			ptrMap1& = LblPtr&(map_layer_1_3)
+			ptrExtra& = LblPtr&(map_extra_3)
+			ptrEnems& = LblPtr&(enemy_Data_3)
+			ptrBeh& = LblPtr&(behaviours_Data_3)
+			ptrResn& = LblPtr&(resonator_Data_3)
+			Pallettes palletteData_setfg_3, 1, 0, 16
+			Pallettes palletteData_setbg_3, 2, 0, 16
+			Pallettes palletteData_spriteset_3, 3, 0, 16
+			LoadTiles tileData_setfg_3, 192, 256
+			LoadTiles tileData_setbg_3, 64, 448
+			LoadTiles tileData_spriteset_1, 108, 512
+			LoadTiles tileData_spriteset_1, 36, 908, 540
+			LoadTiles tileData_spriteset_1, 72, 944, 576
+			LoadTiles tileData_spriteset_1, 45, 1016, 648
+			LoadTiles tileData_spriteset_1, 27, 1061, 693
+			LoadTiles tileData_spriteset_1, 18, 1088, 720
+			loadTiles tileData_spriteset_1, 27, 1106, 738
+			s_pant = 30
+			plX = ((1 << 4) + 128) << 6
+			plY = ((3 << 4) + 128) << 6
+			heartFreq = 7
+			plNenem = 90
+			'Reload musicDataLevel2	'' %% Insert which track here
+			'Gosub tfdPlayInit
+			Exit Select
+	End Select
+
+	plVX = 32768	' mimmick negative numbers
+	plVY = 32768
+	plFacing = 0
+	plFrame = 0
+	plLife = 10
+	plJumping = 0
+	plGotten = 0
+	plJumpCtr = 0
+	plFlicker = 0
+	plCtr = 0
+	plKeys = 0
+	plKilled = 0
+
+	' load enemies in RAM
+	load_enemies
+
+	' load extra objects in RAM
+	load_extra_objects
+
+	' Load tile behaviours
+	load_behaviours
+End Sub
+
+'' Win level animation
+Declare Sub win_level
+	If xgm_isPlayingMusic Then xgm_stopPlayMusic
+	'1016
+	Dim sprGreat(4) as Integer
+	For i = 0 To 4
+		sprGreat(i) = AddSprite (3, 3)
+		PropSprite sprGreat(i), 1016 + (i * 9), 3
+		moveSprite sprGreat(i), 128 + (24 * i) + 100, 224
+	Next i
+
+	While joypad().6: Wend
+	
+	asm     
+		lea XgmNtscSclear, a1
+	end asm
+	xgm_startPlayMusic
+	
+	Do
+		sleep 1
+		if plY > 64 Then plY = plY - 48 else exit do
+		If plFacing = 0 Then plX=plX+2 Else plX=plX-2
+		propSprite sprPl, fl_spr_offs(((plY>>6)>>3) And 3), 3
+		moveSprite sprPl, (plX >> 6) - 4, (plY >> 6)
+		move_enems
+		If estrujs_on = 1 Then move_estruj
+		For mli = 0 To 3
+			If enemies(enoffs + mli, 8) Then moveSprite SprEn(mli), enemies(enoffs + mli, 0) - 4, enemies(enoffs + mli, 1)
+		Next mli
+	Loop
+
+	Sleep 50
+	
+	xgm_stopPlayMusic
+	
+	For i = 0 To 4
+		FreeSprite sprGreat(i)
+	Next i
+End Sub
+
+'' Game over animation
+Declare Sub game_over
+	If xgm_isPlayingMusic Then xgm_stopPlayMusic
+	moveSprite sprPl, 0, 0
+	PlaySound 2
+
+	Dim sprGameOver(7) as Integer
+	For i = 0 To 7
+		sprGameOver(i) = AddSprite (3, 3)
+		PropSprite sprGameOver(i), 944 + (i * 9), 3
+		moveSprite sprGameOver(i), 128 + (24 * i) + 64, 224
+	Next i
+
+	While joypad().6: Wend
+	
+	asm     
+		lea XgmNtscGover, a1
+	end asm
+	xgm_startPlayMusic
+	
+	Do
+		sleep 1
+		move_enems
+		If estrujs_on = 1 Then move_estruj
+		For mli = 0 To 3
+			If enemies(enoffs + mli, 8) Then moveSprite SprEn(mli), enemies(enoffs + mli, 0) - 4, enemies(enoffs + mli, 1)
+		Next mli
+		j = joypad()
+		If j.4 [OR] j.5 [OR] j.6 [OR] j.7 Then Exit Do
+	Loop
+	
+	xgm_stopPlayMusic
+
+	For i = 0 To 7
+		FreeSprite sprGameOver(i)
+	Next i
+End Sub
+
+'' Pause button
+Declare Sub pause_button
+	If joypad().7 Then
+		While joypad().7: Wend
+		xgm_stopPlayMusic
+		Do
+			If joypad().7 Then Exit Do
+		Loop
+		While joypad().7: Wend
+		playSound 11
+		Sleep 30
+		xgm_resumePlayMusic
+	End If
+End Sub
+
+'' Title subs
+Declare Sub titlePrnTxt(x, y)
+	Do
+		ReadInt a
+		If a = 0 Then Exit Do
+		DrawTile Pallette(2) + a, x, y
+		x = x + 1
+	Loop
+End Sub
+
+Declare Sub title
+	YOffs = 3
+
+	' Load stuff
+	Disable Screen
+
+	SetGFXPlane SCROLL_B
+	Cls
+
+	Pallettes ti_sca_pd, 1, 0, 16
+	LoadTiles ti_sca_td, 48, 256
+
+	For ty = 0 To 29
+		For tx = 0 To 39
+			DrawTile Pallette(1) + 256 + 41, tx, ty
+		Next tx
+	Next ty
+
+	For i = 0 To 100
+		DrawTile Pallette(1) + Rnd(4) + 256 + 42, Rnd(40), Rnd(30)
+	Next i
+
+	For tx = 0 To 39
+		DrawTile Pallette(1) + 256 + 47, tx, YOffs + 1
+		DrawTile Pallette(1) + 256 + 46, tx, YOffs + 9
+	Next tx
+
+	Reload ti_sca_tm
+	For ty = 0 to 6
+		For tx = 0 To 39
+			ReadInt a
+			DrawTile Pallette(1) + 256 + a, tx - 4 , YOffs + 2 + ty
+			if tx < 8 then DrawTile Pallette(1) + 256 + a, tx + 36, YOffs + 2 + ty
+		Next tx
+	Next ty
+
+	SetGFXPlane SCROLL_A
+	Cls
+
+	Pallettes ti_scb_pd, 2, 0, 16
+	LoadTiles ti_scb_td, 290, 512
+	Reload ti_scb_tm
+	For ty = 0 to 10
+		For tx = 0 To 39
+			ReadInt a
+			DrawTile Pallette(2) + 512 + a, tx, YOffs + ty
+		Next tx
+	Next ty
+
+	SetScrollMode HSCROLL_CELL, VSCROLL_OVERALL
+	SetScrollPlane SCROLL_B
+
+	Reload title_text_2
+	titlePrnTxt 5, 24
+	Reload title_text_3
+	titlePrnTxt 6, 26
+
+	Enable Screen
+
+	'Reload musicDataTitle
+	'Gosub tfdPlayInit
+	asm     
+		lea XgmNtscTitle,a1
+    end asm
+    xgm_startPlayMusic
+
+	Do
+		sleep 2
+		frame_counter = frame_counter + 1
+		For i = 5 To 11
+		Scroll2 Right, sine_table_16(((frame_counter) + i) And 63) - 4, i
+		Next i
+
+		If (frame_counter >> 4) And 1 Then
+			Reload title_text_1
+			titlePrnTxt 11, 18
+		Else
+			For x = 11 To 28
+				DrawTile 512, x, 18
+			Next x
+		End If
+
+		If joypad().7 Then Exit Do
+	Loop
+
+	xgm_stopPlayMusic
+	playSound 12
+
+	While joypad().7: Wend
+
+	SetGFXPlane SCROLL_A
+	For ty = 0 To 29
+		For tx = 0 To 39
+			DrawTile 0, tx, ty
+		Next tx
+	Next ty
+	SetGFXPlane SCROLL_B
+	For ty = 0 To 29
+		For tx = 0 To 39
+			DrawTile 0, tx, ty
+		Next tx
+	Next ty
+
+	For i = 5 To 11
+		Scroll2 Right, 0, i
+	Next i
+
+End Sub
+
+Declare Sub cutScene(n)
+	' Play cutscene #n
+End Sub
+
+Declare Sub playThisLevelMusic()
+	Select Case level
+		Case 1:
+			asm
+				lea XgmNtscStage01, a1
+			end asm
+			xgm_startPlayMusic
+			Exit Select
+		Case 2:
+			asm
+				lea XgmNtscStage02, a1
+			end asm
+			xgm_startPlayMusic
+			Exit Select
+		Case 3:
+			asm
+				lea XgmNtscStage03, a1
+			end asm
+			xgm_startPlayMusic
+			Exit Select
+	End Select
+End Sub
+
+Declare Sub initializationStuff()
+	'' load Z80 XGM driver
+	
+	Sleep 100
+	
+   	'' Detect TV Type, set values accordingly, set gfx mode
+	If TvType() = 0 Then
+		' NTSC
+		TvSet 0
+		player_max_vy_fall	= 33194 '426 + 32768
+		player_g			= 18
+		player_max_vy_jump	= 266
+		player_jump_incr	= 60
+		player_jump_ini		= 54
+
+		player_max_vx		= 110
+		player_ax 			= 12
+		player_fx			= 18
+
+		player_conveyor		= 73 '(payer_max_vx * 2) / 3
+
+		resnFrames			= 60
+	Else
+		' PAL
+		TvSet 1
+		player_max_vy_fall	= 33280 '512 + 32768
+		player_g			= 16
+		player_max_vy_jump	= 256
+		player_jump_incr	= 64
+		player_jump_ini		= 48
+
+		player_max_vx		= 128
+		player_ax 			= 16
+		player_fx			= 24
+
+		player_conveyor		= 85 ' (payer_max_vx * 2) / 3
+
+		resnFrames			= 50
+	End If
+End Sub
+
+Declare Sub prepareMyGameStuff
+	Disable Screen
+	'' Palettes
+	' Palettes 1 & 2 for tiles bg & fg
+	' Palette 3 for sprites
+	' Palette 0 for GUI
+
+	Pallettes palletteData_hud, 0, 0, 16
+
+	'' Tilesets (general)
+
+	' 128 - onwards: hud (64)
+	LoadTiles tileData_hud, 52, 128
+	' 1280 - onwards: 7-segment digits
+	LoadTiles tileData_hud, 20, 96, 50
+
+	'' Sprite creation
+
+	' hud sprites
+	For mli = 0 To 7
+		hudSprs(mli) = addSprite (2, 1)
+		propSprite hudSprs(mli), 128, 0
+		moveSprite hudSprs(mli), 136 + (mli << 3), 144
+	Next mli
+	propSprite hudSprs(0), 148, 0
+	propSprite hudSprs(3), 150, 0
+	propSprite hudSprs(6), 152, 0
+
+	' player sprite
+	sprPl = addSprite (3, 3)
+	propSprite sprPl, 512, 3
+
+	' enemy sprites
+	For mli = 0 To 3
+		SprEn(mli) = addSprite (3, 3)
+		propSprite sprEn(mli), 620 + (72 * mli), 3
+	Next mli
+
+	' resonator sprite
+	sprResnCd = addSprite (2, 1)
+	propSprite sprResnCd, cd_spr_offs (9), 0
+	sprResn = addSprite (3, 3)
+	propSprite sprResn, 1088, 3
+	resnOn = 0
+	resnCt = 9
+
+	' extra sprites (no prop)
+	For mli = 0 To 7
+		sprExtra(mli) = addSprite (2, 2)
+	Next mli
+
+	' Heart
+	sprHeart = addSprite (2, 2)
+	propSprite sprHeart, 168, 0
+	
+	Enable Screen
+End Sub
+
+''' Data
+
+pl_sprite_offsets_Data:
+	DataInt	512, 521, 530, 539, 548, 557, 1106
+	DataInt 566, 575, 584, 593, 602, 611, 1115
+
+fl_sprite_offsets_Data:
+	DataInt 1061, 1070, 1061, 1079
+
+en_sprite_offsets_Data:
+	DataInt 620, 629, 638, 647, 656, 665, 674, 683
+	DataInt 692, 701, 710, 719, 728, 737, 746, 755
+	DataInt 764, 773, 782, 791, 800, 809, 818, 827
+	DataInt 836, 845, 854, 863, 872, 881, 890, 899
+
+ex_sprite_offsets_Data:
+	DataInt 908, 917
+
+pt_sprite_offsets_Data:
+	DataInt 926, 935
+
+cd_sprite_offsets_Data:
+	'DataInt 1280, 1282, 1284, 1286, 1288
+	'DataInt 1290, 1292, 1294, 1296, 1298
+	DataInt 96, 98, 100, 102, 104
+	DataInt 106, 108, 110, 112, 114
+
+''' Debug select level Data
+
+' DEBUG - SELECT LEVEL
+debug_text_1:
+	DataInt 774, 775, 772, 791, 777, 512, 751, 512, 789, 775, 782
+	DataInt 775, 773, 790, 512, 782, 775, 792, 775, 782, 0
+
+' LEVEL TWO - FACTORY
+debug_text_2:
+	DataInt 782, 775, 792, 775, 782, 512, 790, 793, 785, 512, 751
+	DataInt 512, 776, 771, 773, 790, 785, 788, 795, 0
+
+' LEVEL ONE - TOWN
+debug_text_3:
+	DataInt 782, 775, 792, 775, 782, 512, 785, 784, 775, 512, 751
+	DataInt 512, 790, 785, 793, 784, 0
+
+' LEVEL THREE - CAVE
+debug_text_4:
+	DataInt 782, 775, 792, 775, 782, 512, 790, 778, 788, 775, 775
+	DataInt 512, 751, 512, 773, 771, 792, 775, 0
+
+''' Title Data
+
+title_text_1:
+	DataInt 786, 788, 775, 789, 789, 512, 789, 790, 771, 788, 790
+	DataInt 512, 772, 791, 790, 790, 785, 784, 0
+
+title_text_2:
+	DataInt 773, 785, 786, 795, 782, 775, 776, 790, 512, 756, 754
+	DataInt 755, 757, 512, 512, 790, 778, 775, 512, 783, 785, 780
+	DataInt 785, 784, 512, 790, 793, 779, 784, 789, 0
+
+title_text_3:
+	DataInt 786, 785, 774, 775, 793, 793, 793, 788, 512, 773, 785
+	DataInt 782, 782, 775, 773, 790, 779, 785, 784, 512, 792, 785
+	DataInt 782, 752, 512, 741, 754, 755, 0
+
+ti_sca_pd:
+	DataFile ti-sca-pd.bin, bin
+
+ti_sca_td:
+	DataFile ti-sca-td.bin, bin
+
+ti_sca_tm:
+	DataFile ti-sca-tm.bin, bin
+
+ti_scb_pd:
+	DataFile ti-scb-pd.bin, bin
+
+ti_scb_td:
+	DataFile ti-scb-td.bin, bin
+
+ti_scb_tm:
+	DataFile ti-scb-tm.bin, bin
+
+''' Cutscene Data
+
+''' Game Data
+
+sine_table_16_Data:
+	DataInt 32768, 32769, 32771, 32772, 32774, 32775, 32776, 32778
+	DataInt 32779, 32780, 32781, 32782, 32782, 32783, 32783, 32783
+	DataInt 32784, 32783, 32783, 32783, 32782, 32782, 32781, 32780
+	DataInt 32779, 32778, 32776, 32775, 32774, 32772, 32771, 32769
+	DataInt 32767, 32766, 32764, 32763, 32761, 32760, 32759, 32757
+	DataInt 32756, 32755, 32754, 32753, 32753, 32752, 32752, 32752
+	DataInt 32752, 32752, 32752, 32752, 32753, 32753, 32754, 32755
+	DataInt 32756, 32757, 32759, 32760, 32761, 32763, 32764, 32766
+
+tileData_hud:
+	DataFile hud.bin, bin
+
+palletteData_hud:
+	DataInt	$0000,$048E,$0420,$0006,$022A,$06EE,$0264,$0042
+	DataInt	$0E86,$0EAA,$086E,$0CEE,$0ECE,$002E,$0644,$044C
+'' Level 1 includes
+
+tileData_setfg_1:
+	DataFile l1setfg.bin, bin
+
+tileData_setbg_1:
+	DataFile l1setbg.bin, bin
+
+tileData_spriteset_1:
+	DataFile l1spriteset.bin, bin
+
+palletteData_setfg_1:
+	DataInt	$0000,$0466,$0024,$0246,$0042,$0222,$06AA,$0ACC
+	DataInt	$0688,$0264,$0486,$0642,$0864,$0004,$0444,$0666
+
+palletteData_setfg_1_bw:
+	DataInt $0000,$0444,$0222,$0444,$0222,$0222,$0888,$0AAA
+	DataInt $0666,$0444,$0666,$0444,$0666,$0000,$0444,$0666
+
+palletteData_setbg_1:
+	DataInt	$0600,$0600,$0A02,$0642,$00EE,$0602,$0402,$0EA8
+	DataInt	$0620,$0420,$0820,$0000,$0000,$0000,$0000,$0000
+
+palletteData_setbg_1_bw:
+	DataInt $0000,$0000,$0222,$0444,$0AAA,$0222,$0000,$0AAA
+	DataInt $0222,$0222,$0222,$0000,$0000,$0000,$0000,$0000
+
+palletteData_spriteset_1:
+	DataInt	$0000,$0222,$0280,$02A4,$02CA,$020C,$004E,$046E
+	DataInt	$068E,$08CE,$00AE,$0CCA,$0EEE,$0A64,$08AE,$0000
+
+palletteData_spriteset_1_bw:
+	DataInt $0000,$0222,$0444,$0666,$0888,$0222,$0444,$0666
+	DataInt $0888,$0AAA,$0888,$0AAA,$0EEE,$0666,$0AAA,$0000
+
+map_layer_0_1:
+	DataFile l1map.0.bin, bin
+
+map_layer_1_1:
+	DataFile l1map.1.bin, bin
+
+behaviours_Data_1:
+	DataInt 0, 0, 0, 8, 0, 0, 8, 8, 8, 8, 0, 8, 0, 0, 0, 4
+	DataInt 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 8, 8, 8, 8, 8
+	DataInt 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 1, 0, 8, 8
+
+    ' Data t, x, y ;; 1->key 2->bolt 3->block 4->life...
+	' 8*3 = 24 bytes per screen
+map_extra_1:
+    Data 2, 11, 5, 3, 14, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 18, 3, 3, 14, 7, 3, 17, 9, 3, 9, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 13, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 2, 5, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+	' Data t, x1, y1, x2, y2, v
+enemy_Data_1:
+	Data 1, 5, 5, 9, 5, 2, 2, 17, 11, 5, 11, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 3, 15, 2, 9, 2, 1, 2, 8, 2, 3, 2, 2, 5, 17, 8, 17, 7, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 8, 8, 7, 15, 7, 1, 8, 17, 6, 17, 11, 1, 1, 15, 11, 6, 11, 2, 3, 9, 3, 14, 3, 1
+	Data 4, 9, 4, 12, 10, 2, 6, 3, 3, 3, 4, 0, 6, 16, 9, 16, 8, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 12, 6, 12, 9, 1, 2, 9, 6, 11, 6, 1, 8, 17, 4, 10, 4, 1, 8, 2, 3, 2, 10, 2
+	Data 6, 5, 4, 5, 5, 0, 4, 13, 7, 13, 2, 1, 1, 7, 11, 1, 11, 2, 4, 17, 3, 3, 3, 2
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 6, 2, 6, 10, 2, 5, 10, 4, 10, 3, 0, 5, 13, 7, 14, 6, 0, 8, 3, 3, 6, 3, 1
+	Data 1, 10, 5, 3, 5, 1, 1, 10, 11, 2, 11, 2, 4, 13, 1, 13, 11, 2, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 8, 16, 11, 16, 7, 1, 6, 7, 8, 7, 7, 1, 6, 11, 6, 11, 5, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 9, 2, 9, 6, 2, 4, 10, 1, 10, 5, 1, 4, 16, 8, 18, 11, 2, 8, 3, 3, 2, 3, 1
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 1, 4, 5, 11, 5, 2, 4, 3, 2, 3, 11, 2, 3, 16, 11, 7, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 16, 2, 17, 9, 1, 2, 15, 11, 11, 11, 1, 1, 9, 11, 2, 11, 1, 8, 6, 5, 6, 2, 1
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+' total: 33
+
+resonator_Data_1:
+	Data 1, 7
+	Data 15, 5
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 16, 3
+	Data 14, 3
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 10, 9
+	Data 14, 4
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 5, 7
+	Data 15, 3
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 5, 9
+	Data 15, 6
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 1, 7
+	Data 5, 5
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+
+'' Level 2 includes
+
+tileData_setfg_2:
+	DataFile l2setfg.bin, bin
+
+tileData_setbg_2:
+	DataFile l2setbg.bin, bin
+
+'tileData_spriteset_2:
+'	DataFile l2spriteset.bin, bin
+
+palletteData_setfg_2:
+	DataInt	$0000,$0224,$08AC,$068A,$0668,$0446,$0046,$0248
+	DataInt	$024A,$0220,$0A86,$0864,$0442,$0000,$0000,$0000
+
+palletteData_setfg_2_bw:
+	DataInt $0000,$0222,$0AAA,$0888,$0666,$0444,$0222,$0444
+	DataInt $0444,$0000,$0888,$0666,$0222,$0000,$0000,$0000
+
+palletteData_setbg_2:
+	DataInt	$0000,$0446,$0444,$0224,$0644,$0426,$0448,$0406
+	DataInt	$0204,$0202,$0404,$0422,$0222,$0646,$08AC,$088A
+
+palletteData_setbg_2_bw:
+	DataInt $0000,$0444,$0444,$0222,$0444,$0222,$0444,$0222
+	DataInt $0000,$0000,$0222,$0222,$0222,$0444,$0AAA,$0888
+
+palletteData_spriteset_2:
+	DataInt	$0000,$0222,$0280,$02A4,$02CA,$020C,$004E,$046E
+	DataInt	$068E,$08CE,$00AE,$0CCA,$0EEE,$0A64,$08AE,$0000
+
+palletteData_spriteset_2_bw:
+	DataInt $0000,$0222,$0444,$0666,$0888,$0222,$0444,$0666
+	DataInt $0888,$0AAA,$0888,$0AAA,$0EEE,$0666,$0AAA,$0000
+
+map_layer_0_2:
+	DataFile l2map.0.bin, bin
+
+map_layer_1_2:
+	DataFile l2map.1.bin, bin
+
+behaviours_Data_2:
+	DataInt 0, 4, 4, 4, 4, 0, 0, 0, 8, 8, 8, 8, 8, 8, 4, 4
+	DataInt 8, 8, 8, 8, 5, 6, 1, 1, 2, 2, 8, 8, 8, 4, 0, 0
+	DataInt 8, 8, 8, 8, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 0, 0
+
+map_extra_2:
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 6, 3, 3, 6, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 18, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 2, 6, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 16, 5, 3, 16, 6, 3, 16, 7, 3, 16, 8, 3, 16, 9, 3, 16, 10, 0, 0, 0, 0, 0, 0
+    Data 3, 17, 10, 3, 17, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 15, 3, 3, 16, 7, 3, 16, 8, 2, 14, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 14, 4, 3, 17, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 14, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 2, 4, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 18, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+enemy_Data_2:
+	Data 6, 3, 4, 2, 5, 1, 6, 13, 5, 13, 6, 1, 6, 9, 9, 9, 10, 1, 1, 8, 11, 4, 11, 1
+	Data 4, 17, 1, 17, 7, 2, 8, 7, 7, 7, 1, 1, 8, 2, 2, 2, 7, 1, 3, 18, 11, 9, 11, 1
+	Data 4, 13, 1, 13, 6, 1, 4, 17, 1, 17, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 2, 12, 2, 1, 2, 1, 1, 6, 5, 18, 5, 2, 3, 10, 8, 1, 8, 1, 0, 0, 0, 0, 0, 0
+	Data 6, 8, 4, 8, 3, 1, 4, 2, 3, 2, 11, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 6, 3, 7, 3, 8, 1, 6, 10, 10, 10, 9, 1, 4, 6, 1, 16, 5, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 18, 11, 12, 11, 1, 2, 7, 11, 2, 11, 1, 3, 12, 8, 18, 8, 1, 4, 8, 4, 2, 4, 1
+	Data 4, 18, 2, 18, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 4, 4, 8, 4, 1, 1, 14, 4, 6, 4, 2, 5, 2, 5, 2, 4, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 16, 4, 3, 4, 1, 8, 17, 5, 17, 11, 1, 4, 13, 11, 4, 11, 2, 0, 0, 0, 0, 0, 0
+	Data 6, 2, 2, 2, 3, 1, 2, 10, 5, 16, 5, 1, 4, 15, 11, 8, 11, 1, 8, 17, 6, 17, 11, 1
+	Data 8, 9, 4, 9, 10, 1, 4, 10, 3, 17, 7, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 8, 4, 4, 4, 10, 1, 6, 7, 8, 6, 8, 1, 4, 16, 5, 16, 11, 2, 0, 0, 0, 0, 0, 0
+	Data 8, 18, 11, 1, 11, 1, 4, 17, 5, 10, 5, 1, 3, 6, 5, 11, 5, 1, 1, 8, 5, 2, 5, 1
+	Data 8, 2, 5, 2, 11, 1, 6, 5, 3, 5, 4, 1, 6, 16, 3, 16, 4, 1, 4, 2, 4, 2, 10, 1
+	Data 1, 2, 6, 15, 6, 2, 2, 14, 6, 3, 6, 1, 3, 3, 11, 15, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 12, 3, 4, 3, 1, 2, 13, 11, 9, 11, 1, 5, 16, 3, 16, 4, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 9, 2, 9, 11, 1, 4, 13, 2, 13, 11, 1, 2, 3, 8, 1, 8, 1, 0, 0, 0, 0, 0, 0
+	Data 8, 1, 7, 9, 7, 1, 8, 16, 7, 10, 7, 1, 4, 4, 3, 16, 6, 1, 4, 18, 1, 18, 6, 1
+	Data 1, 18, 4, 11, 4, 1, 3, 18, 8, 9, 8, 1, 2, 1, 4, 5, 4, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 8, 7, 3, 7, 1, 2, 8, 4, 12, 4, 1, 4, 15, 2, 15, 6, 2, 0, 0, 0, 0, 0, 0
+	Data 6, 8, 6, 8, 7, 1, 6, 17, 4, 16, 4, 1, 1, 15, 5, 10, 5, 1, 0, 0, 0, 0, 0, 0
+	Data 6, 4, 3, 4, 4, 1, 6, 10, 3, 10, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 1, 18, 8, 10, 8, 1, 2, 7, 5, 17, 5, 2, 4, 1, 4, 5, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 2, 2, 5, 9, 5, 1, 2, 17, 5, 12, 5, 1, 3, 6, 5, 15, 5, 2, 0, 0, 0, 0, 0, 0
+	Data 1, 16, 11, 5, 11, 2, 6, 14, 8, 13, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 11, 7, 18, 11, 1, 4, 18, 1, 11, 5, 1, 2, 7, 11, 4, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 5, 7, 5, 11, 1, 4, 15, 11, 15, 8, 1, 4, 8, 1, 8, 5, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 6, 5, 11, 5, 2, 1, 11, 11, 5, 11, 1, 1, 10, 8, 13, 8, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 10, 9, 16, 9, 1, 4, 18, 11, 12, 11, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 6, 3, 9, 3, 10, 1, 5, 5, 7, 5, 8, 1, 5, 14, 7, 15, 7, 1, 6, 16, 10, 16, 9, 1
+	Data 3, 2, 11, 16, 11, 1, 4, 3, 2, 2, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 3, 17, 4, 5, 4, 2, 4, 3, 5, 3, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 1, 2, 4, 18, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 13, 2, 13, 11, 1, 2, 9, 4, 1, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+' total: 90
+
+resonator_Data_2:
+
+'' Level 3 includes
+
+tileData_setfg_3:
+	DataFile l3setfg.bin, bin
+
+tileData_setbg_3:
+	DataFile l3setbg.bin, bin
+
+'tileData_spriteset_3:
+'	DataFile l3spriteset.bin, bin
+
+palletteData_setfg_3:
+	DataInt	$0000,$0822,$0422,$0A66,$0844,$0622,$0402,$0224
+	DataInt	$00A8,$02EA,$04EE,$0AAA,$0888,$024A,$0248,$0046
+
+palletteData_setfg_3_bw:
+	DataInt $0000,$0222,$0222,$0666,$0444,$0222,$0000,$0222
+	DataInt $0666,$0AAA,$0AAA,$0AAA,$0888,$0444,$0444,$0222
+
+palletteData_setbg_3:
+	DataInt	$0000,$0402,$0602,$0622,$0666,$0444,$0222,$0000
+	DataInt	$0000,$0000,$0000,$0000,$0000,$0000,$0000,$0000
+
+palletteData_setbg_3_bw:
+	DataInt $0000,$0000,$0222,$0222,$0666,$0444,$0222,$0000
+	DataInt $0000,$0000,$0000,$0000,$0000,$0000,$0000,$0000
+
+palletteData_spriteset_3:
+	DataInt	$0000,$0222,$0280,$02A4,$02CA,$020C,$004E,$046E
+	DataInt	$068E,$08CE,$00AE,$0CCA,$0EEE,$0A64,$08AE,$0000
+
+palletteData_spriteset_3_bw:
+	DataInt $0000,$0222,$0444,$0666,$0888,$0222,$0444,$0666
+	DataInt $0888,$0AAA,$0888,$0AAA,$0EEE,$0666,$0AAA,$0000
+
+map_layer_0_3:
+	DataFile l3map.0.bin, bin
+
+map_layer_1_3:
+	DataFile l3map.1.bin, bin
+
+behaviours_Data_3:
+	DataInt 0, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 4, 4
+	DataInt 4, 0, 0, 0, 0, 3, 3, 3, 3, 0, 0, 0, 2, 1, 4, 0
+	DataInt 4, 4, 1, 4, 8, 8, 0, 0, 4, 8, 8, 0, 0, 7, 7, 7
+
+map_extra_3:
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 2, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 2, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 6, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 2, 3, 3, 2, 15, 3, 2, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 15, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+enemy_Data_3:
+	Data 1, 10, 6, 17, 6, 1, 4, 2, 5, 5, 11, 1, 6, 7, 9, 6, 9, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 1, 5, 15, 5, 2, 1, 8, 11, 4, 11, 1, 3, 12, 10, 15, 10, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 1, 6, 10, 6, 2, 3, 11, 11, 8, 11, 1, 5, 13, 6, 13, 5, 0, 5, 15, 8, 15, 7, 0
+	Data 6, 12, 3, 12, 2, 0, 6, 18, 7, 18, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 2, 10, 8, 5, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 3, 15, 4, 10, 4, 1, 4, 10, 8, 17, 6, 1, 1, 2, 11, 5, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 17, 7, 9, 7, 1, 4, 2, 3, 2, 10, 1, 4, 3, 7, 3, 12, 1, 0, 0, 0, 0, 0, 0
+	Data 3, 5, 9, 8, 9, 1, 3, 14, 10, 9, 10, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 3, 10, 11, 5, 11, 1, 3, 16, 10, 11, 10, 1, 6, 7, 4, 7, 5, 0, 0, 0, 0, 0, 0, 0
+	Data 5, 4, 7, 4, 8, 0, 4, 8, 2, 8, 5, 1, 4, 11, 1, 11, 7, 1, 0, 0, 0, 0, 0, 0
+	Data 3, 3, 5, 8, 5, 1, 4, 8, 7, 9, 10, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 8, 1, 10, 17, 10, 1, 3, 18, 8, 13, 8, 1, 1, 13, 5, 17, 5, 1, 2, 13, 2, 7, 2, 1
+	Data 4, 8, 8, 17, 8, 1, 4, 18, 4, 9, 4, 1, 4, 3, 3, 3, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 8, 4, 6, 4, 11, 1, 1, 7, 5, 16, 5, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 8, 11, 4, 11, 10, 1, 4, 6, 6, 11, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 3, 17, 8, 11, 8, 1, 4, 7, 2, 7, 9, 1, 4, 9, 3, 9, 10, 1, 0, 0, 0, 0, 0, 0
+	Data 8, 8, 11, 8, 6, 1, 1, 9, 5, 6, 5, 1, 2, 2, 10, 9, 10, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 16, 10, 4, 9, 1, 3, 3, 4, 13, 4, 1, 3, 8, 2, 5, 2, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 18, 8, 9, 8, 1, 4, 8, 3, 11, 5, 1, 4, 2, 2, 2, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 13, 4, 13, 11, 1, 4, 8, 1, 8, 9, 1, 4, 6, 1, 6, 7, 1, 4, 4, 0, 4, 5, 1
+	Data 4, 13, 2, 13, 8, 1, 4, 7, 2, 7, 9, 1, 4, 1, 2, 1, 8, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 15, 10, 6, 10, 1, 5, 10, 7, 10, 6, 1, 5, 13, 8, 13, 7, 0, 5, 7, 8, 7, 7, 0
+	Data 3, 9, 5, 4, 5, 1, 1, 2, 8, 12, 8, 2, 4, 13, 11, 3, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 8, 18, 8, 9, 8, 1, 4, 7, 5, 16, 7, 1, 3, 2, 5, 4, 5, 1, 3, 5, 6, 6, 6, 1
+	Data 8, 15, 5, 15, 11, 1, 1, 5, 10, 7, 10, 1, 3, 8, 11, 10, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 7, 11, 1, 11, 2, 2, 12, 10, 13, 10, 1, 3, 12, 3, 8, 3, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 15, 3, 11, 3, 1, 3, 6, 3, 7, 3, 1, 2, 11, 9, 14, 9, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 3, 11, 11, 11, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 3, 13, 8, 7, 8, 1, 3, 14, 3, 11, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 8, 1, 4, 16, 4, 1, 4, 15, 7, 10, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 18, 6, 11, 6, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 2, 17, 11, 6, 11, 1, 1, 13, 4, 17, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 9, 5, 2, 5, 1, 6, 12, 5, 12, 6, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 18, 8, 11, 8, 1, 3, 7, 8, 1, 8, 1, 5, 9, 7, 10, 6, 1, 0, 0, 0, 0, 0, 0
+	Data 8, 8, 8, 17, 8, 1, 4, 17, 4, 8, 7, 1, 1, 9, 3, 6, 3, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 7, 6, 7, 11, 2, 4, 8, 5, 8, 11, 2, 4, 9, 11, 9, 8, 1, 0, 0, 0, 0, 0, 0
+' total: 90
+
+resonator_Data_3:
+
+
+'' My own's lame "playSound" will play Pcm on demand...
+'' Plays sound
+Declare Sub playSound(which)
+	' channels
+	' player 0
+	' enemy 1
+	' environ 2
+	Select Case which
+		Case 0:
+			' CEBOLLA!
+			Exit Select
+		' Jump
+		Case 1:
+			asm			 	
+				lea 	PcmJump,a1
+				move.l	#(PcmJump_end-PcmJump),d1
+				move.l	#((1<<4)|3),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Hit
+		Case 2:
+			asm			 	
+				lea 	PcmHit,a1
+				move.l	#(PcmHit_end-PcmHit),d1
+				move.l	#((1<<4)|1),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Ah			
+		Case 3:
+			asm			 	
+				lea 	PcmJump,a1
+				move.l	#(PcmAh_end-PcmAh),d1
+				move.l	#((1<<4)|0),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Spike
+		Case 4:
+			asm			 	
+				lea 	PcmSpike,a1
+				move.l	#(PcmSpike_end-PcmSpike),d1
+				move.l	#((1<<4)|1),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Key
+		Case 5:
+			asm			 	
+				lea 	PcmKey,a1
+				move.l	#(PcmKey_end-PcmKey),d1
+				move.l	#((1<<4)|2),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Life
+		Case 6:
+			asm			 	
+				lea 	PcmLife,a1
+				move.l	#(PcmLife_end-PcmLife),d1
+				move.l	#((1<<4)|2),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Object
+		Case 7:
+			asm			 	
+				lea 	PcmObject,a1
+				move.l	#(PcmObject_end-PcmObject),d1
+				move.l	#((1<<4)|2),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Bolt
+		Case 8:
+			asm			 	
+				lea 	PcmBolt,a1
+				move.l	#(PcmBolt_end-PcmBolt),d1
+				move.l	#((1<<4)|2),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Blam
+		Case 9:
+			asm			 	
+				lea 	PcmBlam,a1
+				move.l	#(PcmBlam_end-PcmBlam),d1
+				move.l	#((1<<4)|2),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' No!
+		Case 10:
+			asm			 	
+				lea 	PcmNo,a1
+				move.l	#(PcmNo_end-PcmNo),d1
+				move.l	#((1<<4)|1),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Dale Fran!
+		Case 11:
+			asm			 	
+				lea 	PcmDaleFran,a1
+				move.l	#(PcmDaleFran_end-PcmDaleFran),d1
+				move.l	#((1<<4)|0),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Start
+		Case 12:
+			asm			 	
+				lea 	PcmStart,a1
+				move.l	#(PcmStart_end-PcmStart),d1
+				move.l	#((1<<4)|0),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Select
+		Case 13:
+			asm			 	
+				lea 	PcmSelect,a1
+				move.l	#(PcmSelect_end-PcmSelect),d1
+				move.l	#((1<<4)|0),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Power Off
+		Case 14:
+			asm			 	
+				lea 	PcmPowerOff,a1
+				move.l	#(PcmPowerOff_end-PcmPowerOff),d1
+				move.l	#((1<<4)|2),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Count down
+		Case 15:
+			asm			 	
+				lea 	PcmCountDown,a1
+				move.l	#(PcmCountDown_end-PcmCountDown),d1
+				move.l	#((1<<4)|2),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+		' Count down end
+		Case 16:
+			asm			 	
+				lea 	PcmFinalCountdown,a1
+				move.l	#(PcmFinalCountdown_end-PcmFinalCountdown),d1
+				move.l	#((1<<4)|2),d2
+			end asm
+			xgm_playPCM
+			Exit Select
+	End Select
+End Sub
+
+Declare Sub disclaimer
+
+	cls
+	
+	Pallettes di_scb_pd, 0, 0, 16
+	LoadTiles di_scb_td, 290, 32
+	
+	locate 0,0
+	
+	print
+	print "          IMPORTANT NOTICE"
+	print "          ----------------"
+	print
+	
+	print "THIS IS A DEMO VERSION - THIS GAME IS"
+	print "IN AN UNFINISHED STATE."
+	print 
+	print "IT MAY AND WILL CONTAIN BUGS AND SOME"
+	print "GLITCHES."
+	print 
+	print "DISTRIBUTION OF THIS GAME IS STRICTLY"
+	print "*FORBIDDEN*. IF YOU GOT THIS SOMEHOW,"
+	print "PLEASE CONTACT THE MOJONTWINS AT"
+	print 
+    print "         MOJONTWINS@GMAIL.COM"
+	print 
+	print "IF YOU PAID FOR THIS GAME, SORRY DUD,"
+	print "BUT YOU GOT SCAMMED."
+	print 
+	print "PLEASE DON'T SUPPORT PIRATES WHO TRY"
+	print "TO MAKE MONEY UPON THE HARD WORK OF"
+	print "OTHER PEOPLE AND REPORT!"
+	print 
+	print "THANK YOU AND ENJOY."
+	
+	DO
+		j = joypad()
+	LOOP WHILE j = 0
+	
+	Cls
+	
+End Sub
+
+di_scb_pd:
+	DataFile disPD.bin, bin
+
+di_scb_td:
+	DataFile disTS.bin, bin

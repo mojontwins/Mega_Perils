@@ -1,0 +1,3 @@
+editor - inicializando
+recorta_tiles - creando tile 0
+recorta_tiles - Recortando tiles

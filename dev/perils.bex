@@ -1,0 +1,5560 @@
+'''
+''' First attempt to code a proper game for teh Genesis
+'''
+''' Copyleft 2013 The Mojon Twins
+''' Abandoned until 2015 - And finished.
+''' In fact, finished in 2016.
+
+''' PS. Don't code your game in BEX.
+''' DONT even THINK about doing so.
+
+''' Uses vSync code from
+''' http://bigevilcorporation.co.uk/2012/04/30/sega-megadrive-7-gamepad-input-and-the-game-loop/
+
+''' Set Bex options
+
+	Option CARTRIDGE
+	Option TITLE, "MEGA Cheril Perils"
+	Option NOLOADFONT
+
+''' Constants
+
+	Const #map_w				= 6
+	Const #map_h				= 6
+	
+	Const #ZERO					= 32768
+	
+''' Very important
+
+	Global ntscTimings As Integer
+	Global frctr As Integer
+
+''' Those used to be constants, but I need them as variables
+''' So I can adjusto for NTSC.
+
+	Global player_max_vy_fall As Integer
+	Global player_g	As Integer
+	Global player_max_vy_jump As Integer
+	Global player_jump_incr As Integer
+	Global player_jump_ini As Integer
+
+	Global player_max_vx As Integer
+	Global player_ax As Integer
+	Global player_fx As Integer
+
+	Global player_conveyor As Integer
+
+''' Global variables
+
+	'' Data pointers
+	Global ptrMap0& As Long		' Points to map layer 0
+	Global ptrMap1& As Long		' Points to map layer 0
+	Global ptrExtra& As Long	' Points to extra
+	Global ptrEnems& As Long	' Points to enems
+	Global ptrBeh& As Long		' Points to behaviours
+	Global ptrResn& As Long		' Points to resonators
+	
+	'' Pcm player needs this
+	Dim pcmid As Long
+    
+	'' Game
+	Global s_pant As Integer
+	Global n_pant As Integer
+	Global nn_pant As Integer
+	Dim doGame As Integer
+	Dim doPlay As Integer
+	Global estrujs_on As Integer
+
+	Global level As Integer
+
+	'' Cheril
+	Global plX As Integer
+	Global plY As Integer
+	Global plVX As Integer
+	Global plVY As Integer
+	Global plFacing As Integer
+	Global plFrame As Integer
+	Global plSubFrame As Integer
+	Global plJumping As Integer
+	Global plGotten As Integer
+	Global plJumpCtr As Integer
+	Global plStep As Integer
+	Global plFlicker As Integer
+	Global plCtr As Integer
+	Global plLife As Integer
+	Global plKeys As Integer
+	Global plKilled As Integer
+	Global plNenem As Integer
+	Global plOutOfBounds As Integer
+
+	'' Heart
+	Global heartX As Integer
+	Global heartY As Integer
+	Global heartAct As Integer
+	Global heartFreq As Integer
+	Global heartNPant As Integer
+
+	'' Resonators
+	Global resnX As Integer
+	Global resnY As Integer
+	Global resnOn As Integer
+	Global resnCt As Integer
+	Global resnFrames As Integer
+	Global resnCtFrames As Integer
+	Global resnCtShow As Integer
+
+	'' Estrujators
+	' 0:x 1:y 2:state 3:steps 4:ct 5:maxct 6:aux
+	Global estruj(7, 6) As Integer
+
+	'' Enemy Data
+	' 6*6*4 = 144
+	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:ct2
+	Global enemies(143, 15) As Integer
+	Global enoffs As Integer
+	Global someBodyIsMoving As Integer
+
+	'' Collision Data
+	Global behaviours(47) As Integer
+
+	'' Ram buffers
+	Global pattr(20,13) As Integer
+
+	'' Sine tables
+	Global sine_table_16(63) As Integer At sine_table_16_Data
+	Global sine_table_16_2(63) As Integer At sine_table_16_2_Data
+
+	'' Sprite handlers
+	Global sprPl As Integer
+	Global sprEn(3) As Integer
+	Global hudSprs(7) As Integer
+	Global sprExtra(7) As Integer
+	Global sprHeart As Integer
+	Global sprResn As Integer
+	Global sprResnCd As Integer
+
+	'' Misc
+	Global half_life As Integer
+	Global frame_counter As Integer
+	Global GAME_B As Integer
+	Global cells(6,135) As Integer
+	Global pass_code (7) As Integer
+	Global choice As Integer
+	Global engineMode As Integer
+
+	'' Sprite offsets
+	' Main Player
+	' 0 = standing
+	' 1,2,3,4 = running
+	' 5 = jumping/falling
+	' +6 = facing left.
+	Global pl_spr_offs(13) As Integer At pl_sprite_offsets_Data
+	Global fl_spr_offs(4) As Integer At fl_sprite_offsets_Data
+
+	' Enemies
+	Global en_spr_offs(31) As Integer At en_sprite_offsets_Data
+
+	' Explosion
+	Global ex_spr_offs(1) As Integer At ex_sprite_offsets_Data
+
+	' Platforms
+	Global pt_spr_offs(1) As Integer At pt_sprite_offsets_Data
+
+	' Countdown
+	Global cd_spr_offs(9) As Integer At cd_sprite_offsets_Data
+
+	'' Extra objects
+	' 0:x 1:y 2:rx 3:ry 4:type 5:state{0 idle, 1 moving, ...} 6:dx
+	' Define 8
+	Global extra_objects(287, 7) As Integer
+	Global exoffs As Integer
+	
+	''
+	Global language As Integer
+	
+	''
+	Global yScrollPostn (19) As Integer
+	Global yScrollCoord (19) As Integer
+	
+	'' New Level animation
+	
+	Global nla_sh(6) As Integer
+
+	'' Win level animation
+	
+	Global sprGreat(4) As Integer
+	
+	'' Game Over
+	
+	Global sprGameOver(7) As Integer
+	
+''' Initialization stuff
+
+	pcmid& = 64
+	
+	Disable SCREEN
+	z80_loadDriver
+	
+	initializationStuff
+	'greetingsScreen
+	selectLanguage
+	'LoadTiles tile1300, 1, 1300, 0
+
+''' Game on
+
+	Do
+		' Menu, intros, etc here
+tominabo:		
+		TITLE
+		
+		GAME_B = 1
+		
+		If choice = 0 Then
+			Sleep 60				' Let the sound ring...
+			''' First cutscene
+			showCutS 1
+
+			''' That's it.
+			level = 1
+		Else
+			enterPasswordScreen
+			Select Case level
+				Case 1:
+					GoTo tominabo
+					Exit Select
+				Case 2:
+				Case 3:
+				Case 4:
+				Case 5:
+					Exit Select
+				Case 6:
+					showCutS 7
+					showCutS 8
+					GoTo tominabo
+					Exit Select
+				Case 7:
+					GoTo tominabo
+					Exit Select
+				Case 8:
+					GoTo tominabo
+					Exit Select
+				Case 9:
+					GoTo tominabo
+					Exit Select
+			End Select
+		End If
+		
+		engineMode = 1
+		
+		doPlay = 1
+		While doPlay = 1
+			' Safe?
+			If ntscTimings = 1 Then
+				TvSet 0
+			Else
+				TvSet 1
+			End If
+			Disable SCREEN
+			VidMode VID40CELL
+		
+''' Init Game
+			showCutS level + 1
+			
+			newLevelAnimationCreateSprites
+			prepareMyGameStuff
+			prepare_level
+			n_pant = s_pant
+			nn_pant = n_pant
+
+			' Prepare Screen
+			draw_scr
+			
+			'SetScrollMode HSCROLL_OVERALL, VSCROLL_OVERALL
+			'SetScrollPlane SCROLL_A
+			'Scroll2 Down, 1
+			
+			' Raster?
+			'If level = 4 [OR] level = 5 Then 
+			'	doRasterEffect = 1 
+			'	SetScrollPlane SCROLL_B
+			'	SetScrollMode HSCROLL_CELL, VSCROLL_2CELL
+			'	scrolly_effect
+			'	drawSimpleFrame
+			'Else 
+			'	doRasterEffect = 0
+			'End If
+			
+			If estrujs_on = 1 Then move_estruj
+			' Dale Fran!
+			Enable SCREEN
+			newLevelAnimation			
+			
+			' Start music
+	    	playThisLevelMusic
+	    	
+	    	Pallettes palletteData_hud, 0, 0, 16
+	    	positionHud
+			hud
+			
+			' Let's do it
+			doGame = 1
+			half_life = 0
+			gameOver = 0
+			
+			While 1
+				half_life = 1 - half_life
+				frame_counter = frame_counter + 1
+
+				'' Move stuff around
+				move_player
+				move_enems
+				move_with_platforms
+				move_extra
+				move_heart
+				If estrujs_on = 1 Then move_estruj
+				do_resonators
+
+				'' Manage collisions
+				collisions
+
+				'' Pause button
+				pause_button
+
+				'' Change screen ?
+				change_screen
+				If nn_pant <> n_pant Then
+					Sleep 1
+					Disable SCREEN
+					fix_movables
+					n_pant = nn_pant
+					draw_scr
+					hud
+					Enable SCREEN
+				End If
+
+				'' Update
+				Sleep 1
+				
+				'' Scrolly Effect
+				'If doRasterEffect [AND] resnOn = 0 Then scrolly_effect
+				
+				' Y + 8 all sprites.
+				' Player: offset -4, -8
+
+				If plFlicker = 0 [Or] half_life = 1 [Or] plCtr > 90 Then
+					MoveSprite sprPl, (plX >> 6) - 4, (plY >> 6) + 1
+				Else
+					MoveSprite sprPl, 0, 0
+				End If
+
+				' Enemies
+				For mli = 0 To 3
+					If enemies(enoffs + mli, 8) Then MoveSprite SprEn(mli), enemies(enoffs + mli, 0) - 4, enemies(enoffs + mli, 1) + 1
+				Next mli
+
+				' Cheat
+				j = JoyPad()
+				If j.0 [And] j.4 [And] j.5 [And] j.6 Then plKilled = plNenem
+
+				' End game?
+				If plKilled = plNenem Then
+					xgm_stopPlayMusic
+					Sleep 4
+					win_level
+					Exit While
+				End If
+
+				If plLife = 0 Then
+					xgm_stopPlayMusic
+					Sleep 4
+					game_over
+					doPlay = 0
+					Exit While
+				End If
+			Wend
+			
+			outTheHud
+			FreeAllSprites
+			scrollyVMelt
+			Disable SCREEN
+			
+			'If level = 4 [OR] level = 5 Then scrolly_reset
+			
+			If doPlay = 1 Then
+				level = level + 1
+				If (level = 6) Then
+					showCutS 7
+					showCutS 8
+					showPasswordScreen
+					doPlay = 0
+				Else
+					showPasswordScreen
+				End If
+			End If
+		Wend
+	Loop
+
+''' Subroutines
+
+''' SUPERHACK
+''' Al principio todas las que llamen a otras con parámetros.
+
+'' Draws current screen and sets up enemies and stuff
+Declare Sub draw_scr
+	' Estrujs:
+	For esi = 0 To 7
+		estruj(esi, 2) = &HFF
+	Next esi
+
+	'' Prepare enemies
+	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:res3
+	enoffs = n_pant << 2
+	For eni = 0 To 3
+		If enemies(enoffs + eni, 8) Then
+			load_spr_tiles eni, enemies(enoffs + eni, 8) - 1
+			MoveSprite SprEn(eni), enemies(enoffs + eni, 0) - 4, enemies(enoffs + eni, 1) + 1
+		Else
+			MoveSprite SprEn(eni), 0, 0
+		End If
+	Next eni
+
+	'' Place player
+	MoveSprite sprPl, (plX >> 6) - 4, (plY >> 6) + 1
+
+	'' Draw BG
+	SetGfxPlane SCROLL_B
+	DATAPTR& = ptrMap0&
+	draw_layer 2, 0
+
+	'' Draw FG
+	SetGfxPlane SCROLL_A
+	DATAPTR& = ptrMap1&
+	draw_layer 1, 1
+
+	'' Extra objects
+
+	exoffs = n_pant << 3
+	For exi = 0 To 7
+		exIdx = exoffs + exi
+		' state
+		extra_objects(exIdx, 5) = 0
+		If extra_objects(exIdx, 4) <> 0 Then
+			' Attr
+			If extra_objects(exIdx, 4) = 2 [Or] extra_objects(exIdx, 4) = 3 Then
+				pattr(extra_objects(exIdx, 0), extra_objects(exIdx, 1)) = 4
+			End If
+			PropSprite sprExtra(exi), 152 + (extra_objects(exIdx, 4)<<2), 0
+			MoveSprite sprExtra(exi), extra_objects(exIdx, 2), extra_objects(exIdx, 3)
+		Else
+			MoveSprite sprExtra(exi), 0, 0
+		End If
+	Next exi
+
+	'' Place resonator
+	If GAME_B != 0 Then
+		DATAPTR& = ptrResn& + (n_pant << 1)
+		Read x
+		resnX = 128 + (x << 4)
+		Read y
+		resnY = 128 + (y << 4)
+
+		If resnOn = 0 Then
+			PropSprite sprResn, 1088, 3
+			MoveSprite sprResnCd, 0, 0
+			If x + y <> 0 Then resnCtShow = 1
+		Else
+			PropSprite sprResn, 1097, 3
+			If x + y <> 0 Then 
+				PropSprite sprResnCd, cd_spr_offs(resnCt), 0
+				MoveSprite sprResnCd, resnX + 4, resnY + 8
+				resnCtShow = 1
+			Else
+				MoveSprite sprResnCd, 0, 0
+				resnCtShow = 0
+			End If
+		End If
+
+		If x + y <> 0 Then 
+			MoveSprite sprResn, resnX - 4, resnY + 1
+		Else
+			MoveSprite sprResn, 0, 0
+		End If
+
+		' set_pal_nm
+	Else
+		resnX = 0
+		resnY = 0
+		resnOn = 0
+	End If
+	'' Whoahahahaha
+
+End Sub
+
+'' Load enemies from ROM into RAM and precalc stuff
+Declare Sub load_enemies()
+ 	' Data t, x1, y1, x2, y2, v
+ 	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:ct2
+
+	DATAPTR& = ptrEnems&
+
+	For len_i = 0 To 143
+		Read t, x1, y1, x2, y2, v
+		enemies(len_i, 0) = 128 + (x1 << 4)
+		enemies(len_i, 1) = 128 + (y1 << 4)
+		enemies(len_i, 2) = 128 + (x1 << 4)
+		enemies(len_i, 3) = 128 + (y1 << 4)
+		enemies(len_i, 4) = 128 + (x2 << 4)
+		enemies(len_i, 5) = 128 + (y2 << 4)
+		enemies(len_i, 6) = directn(x2, x1, v)
+		enemies(len_i, 7) = directn(y2, y1, v)
+		enemies(len_i, 8) = t
+		enemies(len_i, 9) = 1		' en:st: 0:off 1:normal 2:pursuing 3:dying
+		enemies(len_i, 10) = 0		' ct1
+		enemies(len_i, 11) = 0		' ct2
+	Next i
+End Sub
+
+'' Move extra objects and checks for collisions
+Declare Sub move_extra()
+	' 0:x 1:y 2:rx 3:ry 4:type 5:state{0 idle, 1 moving, ...} 6:dx
+
+	x = plX >> 6
+	y = 8 + (plY >> 6)
+
+	For i = 0 To 7
+		exIdx = exoffs + i
+		' Moving? 1 <-, 2 ->
+		If extra_objects(exIdx, 5) = 1 Then
+			extra_objects(exIdx, 2) = extra_objects(exIdx, 2) - 4
+			MoveSprite sprExtra(i), extra_objects(exIdx,2), extra_objects(exIdx,3)
+			If extra_objects(exIdx, 2) = extra_objects(exIdx, 6) Then
+				extra_objects(exIdx, 5) = 0
+				extra_objects(exIdx, 0) = extra_objects(exIdx, 0) - 1
+				pattr(extra_objects(exIdx, 0), extra_objects(exIdx, 1)) = 4
+				pattr(extra_objects(exIdx, 0) + 1, extra_objects(exIdx, 1)) = 0
+			End If
+		ElseIf extra_objects(exIdx, 5) = 2 Then
+			extra_objects(exIdx, 2) = extra_objects(exIdx, 2) + 4
+			MoveSprite sprExtra(i), extra_objects(exIdx,2), extra_objects(exIdx,3)
+			If extra_objects(exIdx, 2) = extra_objects(exIdx, 6) Then
+				extra_objects(exIdx, 5) = 0
+				extra_objects(exIdx, 0) = extra_objects(exIdx, 0) + 1
+				pattr(extra_objects(exIdx, 0), extra_objects(exIdx, 1)) = 4
+				pattr(extra_objects(exIdx, 0) - 1, extra_objects(exIdx, 1)) = 0
+			End If
+		Else
+			' Collision?
+			If x >= extra_objects(exIdx, 2) - 15 [And] x <= extra_objects(exIdx, 2) + 15 Then
+				If y >= extra_objects(exIdx, 3) - 15 [And] y <= extra_objects(exIdx, 3) + 15 Then
+					' Which type?
+					' 1->key 2->bolt 3->block 4->life...
+					Select Case extra_objects(exIdx, 4)
+						' Keys
+						Case 1:
+							playSound 5
+							plKeys = plKeys + 1
+							hud
+							extra_objects(exIdx, 4) = 0
+							MoveSprite sprExtra(i), 0, 0
+							pattr(extra_objects(exIdx, 0), extra_objects(exIdx, 1)) = 0
+							Exit Select
+
+						' Bolts
+						Case 2:
+							If plKeys = 0 Then
+								playSound 10
+								'plVX = #ZERO - plVX + #ZERO
+								'plVY = #ZERO - plVX + #ZERO
+								If plVX < #ZERO Then
+									plVX = #ZERO + 256
+								Else If plVX > #ZERO
+									plVX = #ZERO - 256
+								End If
+								If plVY < #ZERO Then
+									plVY = #ZERO + 256
+								Else If plVY > #ZERO
+									plVY = #ZERO - 256
+								End If
+							Else
+								playSound 8
+								plKeys = plKeys - 1
+								hud
+								extra_objects(exIdx, 4) = 0
+								MoveSprite sprExtra(i), 0, 0
+								pattr(extra_objects(exIdx, 0), extra_objects(exIdx, 1)) = 0
+							End If
+							Exit Select
+
+						' Blocks (pushable)
+						Case 3:
+							If x < extra_objects(exIdx, 2) - 10 [Or] extra_objects(exIdx, 0) = 0 Then
+								If attr(extra_objects(exIdx, 0) + 1, extra_objects(exIdx, 1)) < 8 [And] extra_objects(exIdx, 0) < 19 Then
+									extra_objects(exIdx, 5) = 2
+									extra_objects(exIdx, 6) = extra_objects(exIdx, 2) + 16
+									playSound 17
+								Else
+									resetThis exIdx
+									MoveSprite sprExtra(i), extra_objects(exIdx,2), extra_objects(exIdx,3)
+									playSound 17
+								End If
+							End If
+							If x >= extra_objects(exIdx, 2) + 11 [Or] extra_objects(exIdx, 0) = 19 Then
+								If attr(extra_objects(exIdx, 0) - 1, extra_objects(exIdx, 1)) < 8 [And] extra_objects(exIdx, 0) > 0 Then
+									extra_objects(exIdx, 5) = 1
+									extra_objects(exIdx, 6) = extra_objects(exIdx, 2) - 16
+									playSound 17
+								Else
+									resetThis exIdx
+									MoveSprite sprExtra(i), extra_objects(exIdx,2), extra_objects(exIdx,3)
+									playSound 17
+								End If
+							End If
+							Exit Select
+						' Life
+						Case 4:
+							playSound 6
+							plLife = plLife + 1
+							hud
+							extra_objects(exIdx, 4) = 0
+							MoveSprite sprExtra(i), 0, 0
+							pattr(extra_objects(exIdx, 0), extra_objects(exIdx, 1)) = 0
+							Exit Select
+					End Select
+				End If
+			End If
+		End If
+	Next i
+End Sub
+
+'' Draws the a
+'' Hud is made of sprites
+Declare Sub hud()
+	print_num2 1, plLife
+	print_num2 4, plNenem - plKilled
+	print_num1 7, plKeys
+End Sub
+
+'' Player movement. Reads joypad and does stuff
+Declare Sub move_player()
+	plOutOfBounds = 0
+	' Ugly fixtures
+	'If plX < 8192 Then plX = 8192
+
+	'' Flicker counter
+	' plState.1 == flicker
+	If plFlicker = 1 Then
+		plCtr = plCtr - 1
+		If plCtr = 0 Then
+			plFlicker = 0
+		End If
+	End If
+
+	'' Read joypad
+	j = JoyPad();
+
+	'' Vertical
+	If engineMode = 1 Then
+	
+		If plVY < player_max_vy_fall Then
+			plVY = plVY + player_g
+		Else
+			plVY = player_max_vy_fall
+		End If
+	
+		If plGotten = 1 Then
+			plVY = #ZERO
+		End If
+	
+		plY = plY - #ZERO + plVY
+		
+		' Bounds
+		If plY <= 8192 Then
+			plY = 8192
+			If plVY < #ZERO [And] n_pant >= #map_w Then plOutOfBounds = 3
+		End If
+		If plY >= 20480 Then
+			plY = 20480
+			If plVY > #ZERO Then plOutOfBounds = 4
+		End If
+	
+		x = (plX >> 6) - 128
+		y = (plY >> 6) - 128
+		xx = x >> 4
+		yy = y >> 4
+		possee = 0
+		
+		If plVY < #ZERO Then
+			If (pattr(xx, yy) > 4) [Or] ((x And 15) <> 0 [And] (pattr(xx + 1, yy) > 4)) Then
+				plVY = #ZERO
+				plY = (((yy + 1) << 4) + 128) << 6
+			End If
+		ElseIf plVY > #ZERO [And] ((y And 15) < 8) Then
+			If (pattr(xx, yy + 1) > 1) [Or] ((x And 15) <> 0 [And] (pattr(xx + 1, yy + 1) > 1)) Then
+				plVY = #ZERO
+				plY = ((yy << 4) + 128) << 6
+				possee = 1
+			End If
+		End If
+	
+		y = (plY >> 6) - 128
+		yy = y >> 4
+	
+		' Jump
+		If j.4 [Or] j.5 [Or] j.6 Then
+			If (plVY = #ZERO [And] plJumping = 0 [And] (possee = 1 [Or] plGotten = 1)) Then
+				plJumping = 1
+				plJumpCtr = 0
+				playSound 1
+				plVY = #ZERO - player_jump_ini
+			ElseIf plJumping = 1 Then
+				'plVY = plVY - (player_jump_incr - (plJumpCtr >> 2))
+				jmpAmnt = player_jump_incr - (plJumpCtr << 2)
+				plVY = plVY - jmpAmnt
+				If (plVY < #ZERO - player_max_vy_jump) Then plVY = #ZERO - player_max_vy_jump
+				'locate 3+plJumpCtr, 2: Print plJumpCtr;" ";jmpAmnt;" ";plVY
+				plJumpCtr = plJumpCtr + 1
+				If plJumpCtr >= 8 Then
+					plJumping = 0
+				End If
+			End If
+		Else
+			plJumping = 0
+		End If
+	
+		y = (plY >> 6) - 128
+		yy = y >> 4
+	End If
+
+	'' Horizontal
+
+	' Slippery when wet?
+	slipping = 0
+	slippery = 0
+	ax = player_ax
+	fx = player_fx
+	If (y And 15) = 0 Then
+		If ((pattr(xx, yy + 1) = 3) [Or] (pattr(xx, yy + 1) = 7)) [Or] ((x And 15) <> 0 [And] (pattr(xx + 1, yy + 1) = 3 [Or] pattr(xx + 1, yy + 1) = 7)) Then
+			ax = 2
+			fx = 1
+			slippery = 1
+		End If
+	End If
+
+	If j.2 Then
+		If plVX > #ZERO - player_max_vx Then
+			plFacing = 7
+			plVX = plVX - ax
+		End If
+	ElseIf j.3 Then
+		If plVX < #ZERO + player_max_vx Then
+			plFacing = 0
+			plVX = plVX + ax
+		End If
+	Else
+		' friction
+		slipping = 1
+		If plVX > #ZERO Then
+			plVX = plVX - fx
+			If plVX < #ZERO Then plVX = #ZERO
+		ElseIf plVX < #ZERO Then
+			plVX = plVX + fx
+			If plVX > #ZERO Then plVX = #ZERO
+		EndIf
+	End If
+
+	'' Conveyors
+	olPlX = plX
+
+	If (y And 15) = 0 Then
+		If (pattr(xx, yy + 1) = 5) [Or] ((x And 15) <> 0 [And] (pattr(xx + 1, yy + 1) = 5)) Then
+			plX = plX - player_conveyor
+		End If
+		If (pattr(xx, yy + 1) = 6) [Or] ((x And 15) <> 0 [And] (pattr(xx + 1, yy + 1) = 6)) Then
+			plX = plX + player_conveyor
+		End If
+	End If
+
+	plX = plX - #ZERO + plVX
+	
+	' Bounds
+	If plX < 8192 Then
+		plX = 8192
+		plOutOfBounds = 1
+	End If
+	If plX > 27648 Then
+		plX = 27648
+		plOutOfBounds = 2
+	End If
+
+	x = (plX >> 6) - 128
+	xx = x >> 4
+
+	If plX < olPlX Then
+		If (pattr(xx, yy) > 4) [Or] ((y And 15) <> 0 [And] (pattr(xx, yy + 1) > 4)) Then
+			plVX = #ZERO
+			plX = (((xx + 1) << 4) + 128) << 6
+		End If
+	End If
+	If plX > olPlX Then
+		If (pattr(xx + 1, yy) > 4) [Or] ((y And 15) <> 0 [And] (pattr(xx + 1, yy + 1) > 4)) Then
+			plVX = #ZERO
+			plX = ((xx << 4) + 128) << 6
+		End If
+	End If
+
+	x = (plX >> 6) - 128
+	xx = x >> 4
+
+	' Evil tile!
+
+	If plVY > #ZERO Then
+		If (pattr(xx, yy + 1) = 1) [Or] ((x And 15) <> 0 [And] (pattr(xx + 1, yy + 1) = 1)) Then
+			plVY = #ZERO - 256
+			plY = ((yy << 4) + 128) << 6
+			one_life_less
+			playSound 4
+		End If
+	Else
+		If (pattr(xx, yy) = 1) [Or] ((x And 15) <> 0 [And] (pattr(xx + 1, yy) = 1)) Then
+			If plVY <> #ZERO Then
+				plVY = #ZERO + 256
+				plY = (((yy + 1) << 4) + 128) << 6
+			Else
+				plVY = #ZERO - 256
+			End If
+			one_life_less
+			playSound 4
+		End If
+	End If
+	y = (plY >> 6) - 128
+	yy = y >> 4
+	If plX < olPlX Then
+		If (pattr(xx, yy) = 2) [Or] ((y And 15) <> 0 [And] (pattr(xx, yy + 1) = 1)) Then
+			plVX = #ZERO + 128
+			'plX = (((xx + 1) << 4) + 128) << 6
+			one_life_less
+			playSound 4
+		End If
+	ElseIf plX > olPlX Then
+		If (pattr(xx + 1, yy) = 2) [Or] ((y And 15) <> 0 [And] (pattr(xx + 1, yy + 1) = 1)) Then
+			plVX = #ZERO - 128
+			'plX = ((xx << 4) + 128) << 6
+			one_life_less
+			playSound 4
+		End If
+	Else
+
+	End If
+
+	' Which sprite?
+	If engineMode = 1 Then
+		If plFlicker = 1 [And] plCtr > 90 Then
+			PropSprite sprPl, pl_spr_offs(plFacing + 6), 3
+		Else
+			If (plVY <> #ZERO [Or] possee = 0) [And] plGotten = 0 Then
+				PropSprite sprPl, pl_spr_offs(plFacing + 5), 3
+			ElseIf plVX <> #ZERO Then
+				If slippery Then
+					If slipping Then
+						plSubFrame = (plSubFrame + 1) And 3
+						If plSubFrame = 0 Then PropSprite sprPl, pl_spr_offs(plFacing + 2), 3
+						'plSubFrame = 0
+					Else
+						plSubFrame = (plSubFrame + 1) And 3
+						If plSubFrame = 3 Then plFrame = (plFrame + 1) And 3
+						PropSprite sprPl, pl_spr_offs(plFacing + plFrame), 3
+					End If
+				Else
+					plSubFrame = 0
+					plFrame = 1 + (xx % 4)
+					PropSprite sprPl, pl_spr_offs(plFacing + plFrame), 3
+				End If
+			Else
+				PropSprite sprPl, pl_spr_offs(plFacing), 3
+			EndIf
+		EndIf
+	EndIf
+End Sub
+
+'' Checks for collisions between player and baddies
+Declare Sub collisions
+	x = plX >> 6
+	y = plY >> 6
+
+	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:res3
+	For i = 0 To 3
+		enIdx = enoffs + i
+		If enemies(enIdx, 8) > 0 [And] enemies(enIdx, 8) < 8 Then
+			If enemies(enIdx, 9) <> 0 [And] enemies(enIdx, 9) <> 3 Then
+
+				If GAME_B <> 1 [Or] resnOn = 1 Then
+					If plVY > #ZERO Then
+						If x >= enemies(enIdx, 0) - 15 [And] x <= enemies(enIdx, 0) + 15 Then
+							If y >= enemies(enIdx, 1) - 23 [And] y <= enemies(enIdx, 1) - 12 Then
+								' Kill
+								plKilled = plKilled + 1
+								enemies(enIdx, 9) = 3 ' State = dying
+								enemies(enIdx, 10) = 60 ' Count = 1 second
+								hud
+								plVY = 32608 ' #ZERO - 160
+
+								' Throw heart?
+								If (plKilled And heartFreq) = 0 Then
+									heartAct = 1
+									heartX = 448
+									heartY = 240
+									heartNPant = n_pant
+								End If
+
+								playSound 7
+
+								Continue For ' next iteration!
+							End If
+						End If
+					End If
+				End If
+
+				' Normal collision: kill player
+
+				If GAME_B <> 1 [Or] resnOn = 0 Then 
+					If x >= enemies(enIdx, 0) - 12 [And] x <= enemies(enIdx, 0) + 12 Then
+						If y >= enemies(enIdx, 1) - 16 [And] y <= enemies(enIdx, 1) + 12 Then
+							If plFlicker = 0 Then
+								plVY = 32448 ' #ZERO - 320
+								one_life_less
+								playSound 2
+							EndIf
+						End If
+					End If
+				End If
+			End If
+		End If
+	Next i
+End Sub
+
+'' Manages the interaction between the player and moving platforms
+Declare Sub move_with_platforms
+	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:ct2
+	plGotten = 0
+
+	For i = 0 To 3
+		enIdx = enoffs + i
+		t = enemies(enIdx, 8)
+		If t = 8 Then
+			x = plX >> 6
+			y = plY >> 6
+
+			If x >= enemies(enIdx, 0) - 15 [And] x <= enemies(enIdx, 0) + 15 Then
+				' Vert
+				If enemies(enIdx, 7) <= #ZERO Then
+					If y >= enemies(enIdx, 1) - 16 [And] y <= enemies(enIdx, 1) - 8 Then
+						If plVY > #ZERO - player_jump_incr Then
+							plGotten = 1
+							plY = (enemies(enIdx, 1) - 16) << 6
+							plVY = #ZERO
+							' Collide with background?
+							xx = (x - 128) >> 4
+							yy = (y - 128) >> 4
+							If attr(xx, yy) > 4 [Or] ((x And 15) <> 0 [And] attr(xx+1, yy) > 4) Then
+								plY = (128 + ((yy + 1) << 4)) << 6
+							End If
+						End If
+					End If
+				Else If enemies(enIdx, 7) > #ZERO Then
+					If y >= enemies(enIdx, 1) - 20 [And] y <= enemies(enIdx, 1) - 8 Then
+						If plVY >= #ZERO Then
+							plGotten = 1
+							plY = (enemies(enIdx, 1) - 16) << 6
+							plVY = #ZERO
+							' Collide with background?
+							xx = (x - 128) >> 4
+							yy = (y - 128) >> 4
+							If attr(xx, yy + 1) > 3 [Or] ((x And 15) <> 0 [And] attr(xx + 1, yy + 1) > 3) Then
+								plY = (128 + (yy << 4)) << 6
+							End If
+						End If
+					End If
+				End If
+
+				' Horz
+				If enemies(enIdx, 6) < #ZERO Then
+					If y >= enemies(enIdx, 1) - 16 [And] y <= enemies(enIdx, 1) - 11 Then
+						If plVY >= #ZERO Then
+							plGotten = 1
+							plY = (enemies(enIdx, 1) - 16) << 6
+							plVY = #ZERO
+							'If GAME_B <> 1 [OR] resnOn = 0 Then
+								x = x + enemies(enIdx, 6)-#ZERO
+								plX = x << 6
+
+								' Collide with background?
+								xx = (x - 128) >> 4
+								yy = (y - 128) >> 4
+								If attr(xx, yy) > 4 [Or] ((y And 15) <> 0 [And] attr(xx, yy + 1) > 4) Then
+									plVX = #ZERO
+									plX = (128 + ((xx + 1) << 4)) << 6
+								End If
+							'End If
+						End If
+					End If
+				Else If enemies(enIdx, 6) > #ZERO Then
+					If y >= enemies(enIdx, 1) - 16 [And] y <= enemies(enIdx, 1) - 11 Then
+						If plVY >= #ZERO Then
+							plGotten = 1
+							plY = (enemies(enIdx, 1) - 16) << 6
+							plVY = #ZERO
+							'If GAME_B <> 1 [OR] resnOn = 0 Then
+								x = x + enemies(enIdx, 6)-#ZERO
+								plX = x << 6
+								' Collide with background?
+								xx = (x - 128) >> 4
+								yy = (y - 128) >> 4
+								If attr(xx + 1, yy) > 4 [Or] ((y And 15) <> 0 [And] attr(xx + 1, yy + 1) > 4) Then
+									plVX = #ZERO
+									plX = (128 + (xx << 4)) << 6
+								End If
+							'End If
+						End If
+					End If
+				End If
+			End If
+		End If
+	Next i
+End Sub
+
+'' Moves the enemies around.
+Declare Sub move_enems
+	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:ct2
+	
+	For i = 0 To 3
+		enIdx = enoffs + i
+		' Enemy type
+		t = enemies(enIdx, 8)
+
+		' Which state?
+		' en:st: 0:off 1:normal 2:pursuing 3:dying
+		' "pursuing" not implemented in this game.
+		' No enemies pursue you here. Yet.
+		
+		Select Case enemies(enIdx, 9)
+			Case 0:
+				' Off
+				Exit Select
+			Case 1:
+				' Normal (roaming)
+				
+				Select Case t
+					Case 1:
+					Case 2:
+					Case 3:
+					Case 4:
+						'' Linear enemies
+	
+						If resnOn = 0 Then
+							' linear movement, limited movement.
+							enemies(enIdx, 0) = enemies(enIdx, 0) + enemies(enIdx, 6) - #ZERO
+							If enemies(enIdx, 0) = enemies(enIdx, 2) [Or] enemies(enIdx, 0) = enemies(enIdx, 4) Then
+								' Change sign...
+								enemies(enIdx, 6) = #ZERO - enemies(enIdx,6) + #ZERO
+							End If
+	
+							enemies(enIdx, 1) = enemies(enIdx, 1) + enemies(enIdx, 7) - #ZERO
+							If enemies(enIdx, 1) = enemies(enIdx, 3) [Or] enemies(enIdx, 1) = enemies(enIdx, 5) Then
+								' Change sign...
+								enemies(enIdx, 7) = #ZERO - enemies(enIdx,7) + #ZERO
+							End If
+						End If
+	
+						' Sprite frame
+					
+						If enemies(enIdx, 6) < #ZERO Then
+							enFacing = 4
+						ElseIf enemies(enIdx, 6) > #ZERO Then
+							enFacing = 0
+						Else
+							If enemies(enIdx, 7) < #ZERO Then
+								enFacing = 4
+							Else
+								enFacing = 0
+							End If
+						End If
+
+						If t = 4 Then b = 2 Else b = 4
+
+						If enemies(enIdx, 6) <> #ZERO Then
+							enFrame = (enemies(enIdx, 0) >> b) % 4
+						Else
+							enFrame = (enemies(enIdx, 1) >> b) % 4
+						End If
+
+						PropSprite sprEn(i), en_spr_offs((i << 3) + enFacing + enFrame), 3
+					
+						Exit Select
+						
+					Case 5:
+				
+						'' Subaquatic-alike (amoeba)
+						
+						If resnOn = 0 Then
+							r = Rnd(5)
+							If r < 3 And enemies(enIdx, 0) < 144 Then r = 2
+							If r < 3 And enemies(enIdx, 0) > 416 Then r = 1
+							If r > 2 And enemies(enIdx, 1) < 160 Then r = 4
+							If r > 2 And enemies(enIdx, 1) > 304 Then r = 3
+							If r = 1 And enemies(enIdx, 0) > 128 Then enemies(enIdx, 0) = enemies(enIdx, 0) - 1
+							If r = 2 And enemies(enIdx, 0) < 432 Then enemies(enIdx, 0) = enemies(enIdx, 0) + 1
+							If r = 3 And enemies(enIdx, 1) > 128 Then enemies(enIdx, 1) = enemies(enIdx, 1) - 1
+							If r = 4 And enemies(enIdx, 1) < 320 Then enemies(enIdx, 1) = enemies(enIdx, 1) + 1
+						End If
+	
+						' Sprite frame
+						enFrame = frame_counter % 7
+						PropSprite sprEn(i), en_spr_offs((i << 3) + enFrame), 3
+						Exit Select
+						
+					Case 6:
+					
+						'' Random weirdo
+					
+						If resnOn = 0 Then
+							
+							r = Rnd(8)
+							nr = 1 + Rnd(8)
+	
+							' Horz
+							If enemies(enIdx, 10) = 0 Then
+								If enemies(enIdx, 0) < 144 Then r = 1
+								If enemies(enIdx, 0) > 416 Then r = 3
+								If r = 1 [Or] r = 2 Then
+									enemies(enIdx, 10) = nr << 4
+									enemies(enIdx, 6) = #ZERO + (r >> 1)
+								ElseIf r = 3 [Or] r = 4 Then
+									enemies(enIdx, 10) = nr << 4
+									enemies(enIdx, 6) = #ZERO - ((r >> 1) - 2)
+								End If
+							Else
+								enemies(enIdx, 10) = enemies(enIdx, 10) - 1
+								
+								' Move?
+								xx = (enemies(enIdx, 0) - 128) >> 4
+								yy = (enemies(enIdx, 1) - 120) >> 4
+								If enemies(enIdx, 6) > #ZERO Then
+									If ((enemies(enIdx, 0) And 15) <> 0 [Or] (pattr(xx + 1, yy) < 8 [And] ((enemies(enIdx, 1) And 15) = 0 [Or] pattr(xx + 1, yy + 1) < 8))) Then
+										enemies(enIdx, 0) = enemies(enIdx, 0) + enemies(enIdx, 6) - #ZERO
+									Else
+										enemies(enIdx, 10) = 0
+									End If
+								Else
+									If ((enemies(enIdx, 0) And 15) <> 0 [Or] (pattr(xx - 1, yy) < 8 [And] ((enemies(enIdx, 1) And 15) = 0 [Or] pattr(xx - 1, yy + 1) < 8))) Then
+										enemies(enIdx, 0) = enemies(enIdx, 0) + enemies(enIdx, 6) - #ZERO
+									Else
+										enemies(enIdx, 10) = 0
+									End If
+								End If
+	
+								If enemies(enIdx, 0) < 160 Then enemies(enIdx, 0) = 160
+								If enemies(enIdx, 0) > 400 Then enemies(enIdx, 0) = 400
+							End If
+	
+							' Vert
+							If enemies(enIdx, 11) = 0 Then
+								If enemies(enIdx, 1) < 160 Then r = 1
+								If enemies(enIdx, 1) > 304 Then r = 3
+								If r = 1 [Or] r = 2 Then
+									enemies(enIdx, 11) = nr << 4
+									enemies(enIdx, 7) = #ZERO + r
+								ElseIf r = 3 [Or] r = 4 Then
+									enemies(enIdx, 11) = nr << 4
+									enemies(enIdx, 7) = #ZERO - (r - 2)
+								End If
+							Else
+								enemies(enIdx, 11) = enemies(enIdx, 11) - 1
+								' Move?
+								xx = (enemies(enIdx, 0) - 128) >> 4
+								yy = (enemies(enIdx, 1) - 120) >> 4
+								If enemies(enIdx, 7) > #ZERO Then
+									If ((enemies(enIdx, 1) And 15) <> 0 [Or] (pattr(xx, yy + 1) < 8 [And] ((enemies(enIdx, 0) And 15) = 0 [Or] pattr(xx + 1, yy + 1) < 8))) Then
+										enemies(enIdx, 1) = enemies(enIdx, 1) + enemies(enIdx, 7) - #ZERO
+									Else
+										enemies(enIdx, 11) = 0
+									End If
+								Else
+									If ((enemies(enIdx, 1) And 15) <> 0 [Or] (pattr(xx, yy - 1) < 8 [And] ((enemies(enIdx, 0) And 15) = 0 [Or] pattr(xx + 1, yy - 1) < 8))) Then
+										enemies(enIdx, 1) = enemies(enIdx, 1) + enemies(enIdx, 7) - #ZERO
+									Else
+										enemies(enIdx, 11) = 0
+									End If
+								End If
+	
+								If enemies(enIdx, 1) < 176 Then enemies(enIdx, 1) = 176
+								If enemies(enIdx, 1) > 288 Then enemies(enIdx, 1) = 288
+							End If
+						End If
+	
+						' Sprite frame
+						If enemies(enIdx, 6) < #ZERO Then
+							enFacing = 4
+						Else
+							enFacing = 0
+						End If
+						
+						If level <> 1 Then
+							enFrame = (frame_counter >> 4) % 4
+						Else
+							enFrame = (enemies(enIdx, 0) >> 4) % 4
+						End If
+						PropSprite sprEn(i), en_spr_offs((i << 3) + enFacing + enFrame), 3
+
+						Exit Select
+						
+					Case 8:
+						
+						'' platforms
+						
+						enemies(enIdx, 0) = enemies(enIdx, 0) + enemies(enIdx, 6) - #ZERO
+						If enemies(enIdx, 0) = enemies(enIdx, 2) [Or] enemies(enIdx, 0) = enemies(enIdx, 4) Then
+							' Change sign...
+							enemies(enIdx, 6) = #ZERO - enemies(enIdx,6) + #ZERO
+						End If
+
+						enemies(enIdx, 1) = enemies(enIdx, 1) + enemies(enIdx, 7) - #ZERO
+						If enemies(enIdx, 1) = enemies(enIdx, 3) [Or] enemies(enIdx, 1) = enemies(enIdx, 5) Then
+							' Change sign...
+							enemies(enIdx, 7) = #ZERO - enemies(enIdx,7) + #ZERO
+						End If
+					
+						enFrame = half_life
+						PropSprite sprEn(i), pt_spr_offs(enFrame), 3
+				
+						Exit Select
+				
+				End Select
+				Exit Select
+
+			Case 2:
+				' Pursuing
+				Exit Select
+
+			Case 3:
+				' Dying
+				enemies(enIdx, 10) = enemies(enIdx, 10) - 1
+				If enemies(enIdx, 10) = 0 Then
+					enemies(enIdx, 9) = 0
+					enemies(enIdx, 8) = 0
+					MoveSprite sprEn(i), 0, 0
+				Else
+					enFrame = (frame_counter >> 2) And 1
+					PropSprite sprEn(i), ex_spr_offs(enFrame), 3
+				End If
+				Exit Select
+
+		End Select
+	Next i
+End Sub
+
+' For some reason, I have to load this stuff HERE.
+' If I do it at the end of the code, the music will sound BAD.
+' And I mean BAD as in NASTY BAD.
+
+'' ----------------------------------------------------------------------------
+'' XGM Driver by Stef
+'' http://devster.proboards.com/thread/1071/add-music-sfx-game-driver
+'' ----------------------------------------------------------------------------
+
+Declare Asm Sub z80_loadDriver()
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request.
+    move.w  #$100,($A11200)
+     
+    MOVE.L  #(Z80drv_end-Z80drv),D0
+    LEA     Z80drv,A0
+    MOVE.L  #$A00000,A1
+     
+@Loop:
+    MOVE.B  (A0)+, (A1)+
+    DBRA    D0, @Loop               ; load driver
+    
+    move.l  #$A01C00,a0             ; point To Z80 sample id table (first entry = silent sample)
+    move.l  #NULLpcm,d0             ; d0 = silent sample
+
+    lsr.l   #8,d0
+    move.b  d0,(a0)+                ; sample address
+    lsr.l   #8,d0
+    move.b  d0,(a0)+
+    move.b  #$01,(a0)+              ; sample length
+    move.b  #$00,(a0)    
+     
+    move.w  #$000,($A11200)         ; Start Z80 Reset
+    move.w  #$000,($A11100)         ; release the Z80 bus
+
+    move.l  #$A00102,a0             ; point To status
+
+@test_ready:
+    move.w  #100,d0                 ; 
+
+@wait:
+    DBRA    D0, @wait               ; wait a bit
+    
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)         ; End Z80 Reset
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+
+    move.b (a0),d0
+    move.w  #$000,($A11100)         ; release the Z80 bus
+    
+    btst   #7,d0                    ; Not yet ready
+    beq    @test_ready
+End Sub
+     
+Declare Asm Function xgm_isPlayingMusic()
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP    
+
+    move.b  ($A00102),d0            ; get channel playing status
+    andi.l  #$40,d0                 ; keep play XGM bit only
+    
+    move.w  #$000,($A11100)         ; release the Z80 bus
+End Function
+
+Declare Asm Sub xgm_startPlayMusic()
+	; a1 should point On XGM music
+
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+    
+    move.l  a3,a0                   ; a0 = reserved $FC array For sample id table
+    moveq   #0,d0
+     
+@Loop:                              ; prepare sample id table
+    move.w  d0,d1
+    add.w   d1,d1   
+    add.w   d1,d1
+    moveq   #0,d2   
+    move.w  0(a1,d1.w),d2           ; get sample addr in song bank table
+    rol.w   #8,d2                   ; revert endianess
+
+    cmp.w   #$FFFF,d2               ; is null sample ?
+    bne     @not_null
+    
+    move.l  #NULLpcm,d2
+    jmp     @addr_done
+    
+@not_null:
+    addq.w  #1,d2                   ; add offset
+    lsl.l   #8,d2                   ; pass To 24 bits
+    add.l   a1,d2                   ; transform To absolute address
+
+@addr_done
+    lsr.l   #8,d2                   ; get HIGH byte
+    move.b  d2,0(a0,d1.w)
+    lsr.w   #8,d2                   ; get LOW byte
+    move.b  d2,1(a0,d1.w)
+    move.w  2(a1,d1.w),2(a0,d1.w)   ; copy sample length
+
+    addq.w  #1,d0
+    cmp.w   #$3F,d0
+    bne     @Loop
+
+    move.l  #$A01C04,a2             ; destination of sample id table
+    lsl.w   #2,d0                   ; set size in bytes
+    subq.w  #1,d0
+     
+@sampleIdLoop:
+    move.b (a0)+,(a2)+
+    dbra   d0,@sampleIdLoop         ; load sample id table
+
+    move.l  a1,d0                   ; d0 = song address
+    add.l   #$100,d0                ; bypass sample id table
+
+    moveq   #0,d2
+    move.w  $FC(a1),d2              ; get sample Data size
+    rol.w   #8,d2                   ; revert endianess
+    lsl.l   #8,d2                   ; pass To 24 bits
+
+    add.l   d2,d0                   ; bypass samples Data
+    addq.l  #4,d0                   ; bypass music Data size field
+    
+    move.l  #$A00104,a2             ; XGM base parameters address
+
+    move.b  d0,0(a2)                ; LOW byte
+    lsr.l   #8,d0
+    move.b  d0,1(a2)                ; med LOW byte
+    lsr.l   #8,d0
+    move.b  d0,2(a2)                ; med HIGH byte
+    lsr.l   #8,d0
+    move.b  d0,3(a2)                ; HIGH byte
+    
+    Or.b    #$40,($A00100)          ; send play XGM command
+
+    move.w  #$000,($A11100)         ; release the Z80 bus    
+End Sub
+
+Declare Asm Sub xgm_resumePlayMusic()
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP    
+    
+    Or.b    #$20,($A00100)          ; send resume play command
+
+    move.w  #$000,($A11100)         ; release the Z80 bus
+End Sub
+
+Declare Asm Sub xgm_stopPlayMusic()
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP    
+    
+    Or.b    #$10,($A00100)          ; send stop play command
+
+    move.w  #$000,($A11100)         ; release the Z80 bus
+End Sub
+
+Declare Asm Function xgm_isPlayingPCM(d0.w As Integer)
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP    
+
+    And.b   ($A00102),d0            ; get channel playing status
+    
+    move.w  #$000,($A11100)         ; release the Z80 bus
+End Function
+
+Declare Asm Sub xgm_playPCM()
+	; a1 should point On PCM sample
+	; d1 should contains PCM length
+	; d2 should contains channel And Priority informations: (prio << 4) | channel
+
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+    
+    move.l  (__LONG_pcmid),d0
+    lsl.l   #2,d0
+    lea     $A01C00,a0
+    adda.l  d0,a0                   ; a0 point On id table entry
+    
+    move.l  a1,d0                   ; d0 = sample address
+    
+    lsr.l   #8,d0                   ; get sample address (HIGH byte)
+    move.b  d0,(a0)+
+    lsr.w   #8,d0                   ; get sample address (LOW byte)
+    move.b  d0,(a0)+
+    lsr.l   #8,d1                   ; get sample length (HIGH byte)
+    move.b  d1,(a0)+
+    lsr.w   #8,d1                   ; get sample length (LOW byte)
+    move.b  d1,(a0)+
+    
+    move.l  d2,d0
+    And.l   #3,d0                   ; d0 = channel number
+    
+    lea     $A00100,a0
+    moveq   #1,d1    
+    lsl.l   d0,d1                   ; d1 = channel shift command
+    Or.b    d1,(a0)                 ; set PCM play command
+    
+    lea     $A00108,a0   
+    add.l   d0,d0
+    adda.l  d0,a0                   ; a0 point On channel info
+
+    move.l  d2,d0
+    lsr.l   #4,d0
+    And.l   #$F,d0                  ; d0 = Priority
+    
+    move.b  d0,(a0)+                ; set Priority
+    
+    move.l  (__LONG_pcmid),d0       ; d0 = PCM id
+
+    move.b  d0,(a0)                 ; set PCM id
+
+    addq.l  #1,d0  
+    And.l   #$FF,d0                
+    Or.l   #$40,d0                  ; id < 0x40 are reserved For music
+    move.l  d0,(__LONG_pcmid)       ; pass To Next id
+
+    move.w  #$000,($A11100)         ; release the Z80 bus
+End Sub
+
+Declare Asm Sub xgm_stopPCM()
+	; d2 should contains channel number
+	
+    move.w  #$100,($A11100)         ; Send the Z80 a bus request
+    move.w  #$100,($A11200)
+        
+    move.l  d2,d0
+    And.l   #3,d0                   ; d0 = channel number
+    
+    lea     $A00100,a0
+    moveq   #1,d1    
+    lsl.l   d0,d1                   ; d1 = channel shift command
+    Or.b    d1,(a0)                 ; set PCM play command
+    
+    lea     $A00108,a0   
+    add.l   d0,d0
+    adda.l  d0,a0                   ; a0 point On channel info
+
+    moveq   #0,d0
+    move.b  d0,(a0)+                ; set Priority
+    move.b  d0,(a0)                 ; set PCM id
+
+    move.w  #$000,($A11100)         ; release the Z80 bus
+End Sub
+
+
+'' These files are the OGT.
+'' XGM music and PCM sound effects.
+
+    Asm
+    
+Z80drv:                             ; Z80 XGM driver
+    INCBIN  "xgm\z80_xgm.bin"
+Z80drv_end:
+
+    align 256
+NULLpcm:
+    INCBIN  "xgm\null.raw"
+NULLpcm_end:
+
+;; OGT by Davidian
+    align 256
+LOOPpcm:
+    INCBIN  "..\..\testxgm\loop.raw"
+LOOPpcm_end:
+
+;; SFX by Davidian
+
+	align 256
+PcmAh:
+	INCBIN "..\..\Perils\ogt\murcia\raw\ah.raw"
+PcmAh_end:
+
+	align 256
+PcmBlam:
+	INCBIN "..\..\Perils\ogt\murcia\raw\blam.raw"
+PcmBlam_end:
+
+	align 256
+PcmBolt:
+	INCBIN "..\..\Perils\ogt\murcia\raw\bolt.raw"
+PcmBolt_end:
+
+	align 256
+PcmCountDown:
+	INCBIN "..\..\Perils\ogt\murcia\raw\countdown.raw"
+PcmCountDown_end:
+
+	align 256
+PcmDaleFran:
+	INCBIN "..\..\Perils\ogt\murcia\raw\dalefran.raw"
+PcmDaleFran_end:
+
+	align 256
+PcmFinalCountdown:
+	INCBIN "..\..\Perils\ogt\murcia\raw\final_countdown.raw"
+PcmFinalCountdown_end:
+
+	align 256
+PcmHit:
+	INCBIN "..\..\Perils\ogt\murcia\raw\hit.raw"
+PcmHit_end:
+
+	align 256
+PcmJump:
+	INCBIN "..\..\Perils\ogt\murcia\raw\jump.raw"
+PcmJump_end:
+
+	align 256
+PcmKey:
+	INCBIN "..\..\Perils\ogt\murcia\raw\key.raw"
+PcmKey_end:	
+
+	align 256
+PcmLife:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\life.raw"
+PcmLife_end:	
+
+	align 256
+PcmNo:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\no.raw"
+PcmNo_end:	
+
+	align 256
+PcmObject:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\object.raw"
+PcmObject_end:	
+
+	align 256
+PcmPowerOff:
+	INCBIN "..\..\Perils\ogt\murcia\raw\14_power_off.raw"
+PcmPowerOff_end:	
+
+	align 256
+PcmSelect:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\select.raw"
+PcmSelect_end:	
+
+	align 256
+PcmSpike:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\spike.raw"
+PcmSpike_end:	
+
+	align 256
+PcmStart:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\start.raw"
+PcmStart_end:	
+
+	align 256
+PcmBarril:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\17_barrel.raw"
+PcmBarril_end:	
+
+	align 256
+PcmPause:	
+	INCBIN "..\..\Perils\ogt\murcia\raw\18_pause.raw"
+PcmPause_end:	
+
+    align 256
+XgmNtscCuts:
+	INCBIN "..\..\Perils\ogt\ntsc_cuts.xgc"
+    
+    align 256
+XgmNtscCut1:
+	INCBIN "..\..\Perils\ogt\ntsc_cut1.xgc"	
+	
+    align 256
+XgmNtscCut2:
+	INCBIN "..\..\Perils\ogt\ntsc_cut2.xgc"	
+
+	align 256
+XgmNtscEnding:
+	INCBIN "..\..\Perils\ogt\ntsc_ending.xgc"
+
+	align 256
+XgmNtscFinalBattleBonus:
+	INCBIN "..\..\Perils\ogt\ntsc_final_battle_bonus.xgc"
+
+	align 256
+XgmNtscFsclear:
+	INCBIN "..\..\Perils\ogt\ntsc_fsclear.xgc"
+
+	align 256
+XgmNtscGover:
+	INCBIN "..\..\Perils\ogt\ntsc_gover.xgc"
+
+	align 256
+XgmNtscSclear:
+	INCBIN "..\..\Perils\ogt\ntsc_sclear.xgc"
+
+	align 256
+XgmNtscStage01:
+	INCBIN "..\..\Perils\ogt\ntsc_stage_01.xgc"
+
+	align 256
+XgmNtscStage02:
+	INCBIN "..\..\Perils\ogt\ntsc_stage_02.xgc"
+
+	align 256
+XgmNtscStage03:
+	INCBIN "..\..\Perils\ogt\ntsc_stage_03.xgc"
+	
+	align 256
+XgmNtscStage04:
+	INCBIN "..\..\Perils\ogt\ntsc_s4.xgc"
+	
+	align 256
+XgmNtscStage05:
+	INCBIN "..\..\Perils\ogt\ntsc_s5.xgc"	
+
+	align 256
+XgmNtscTitle:
+	INCBIN "..\..\Perils\ogt\ntsc_title.xgc"
+
+    align 256
+XgmPalCuts:
+	INCBIN "..\..\Perils\ogt\pal_cuts.xgc"
+	
+    align 256
+XgmPalCut1:
+	INCBIN "..\..\Perils\ogt\pal_cut1.xgc"
+	
+	align 256
+XgmPalCut2:
+	INCBIN "..\..\Perils\ogt\pal_cut2.xgc"	
+
+	align 256
+XgmPalEnding:
+	INCBIN "..\..\Perils\ogt\pal_ending.xgc"
+
+	align 256
+XgmPalFinalBattleBonus:
+	INCBIN "..\..\Perils\ogt\pal_final_battle_bonus.xgc"
+
+	align 256
+XgmPalFsclear:
+	INCBIN "..\..\Perils\ogt\pal_fsclear.xgc"
+
+	align 256
+XgmPalGover:
+	INCBIN "..\..\Perils\ogt\pal_gover.xgc"
+
+	align 256
+XgmPalSclear:
+	INCBIN "..\..\Perils\ogt\pal_sclear.xgc"
+
+	align 256
+XgmPalStage01:
+	INCBIN "..\..\Perils\ogt\pal_stage_01.xgc"
+
+	align 256
+XgmPalStage02:
+	INCBIN "..\..\Perils\ogt\pal_stage_02.xgc"
+
+	align 256
+XgmPalStage03:
+	INCBIN "..\..\Perils\ogt\pal_stage_03.xgc"
+
+	align 256
+XgmPalStage04:
+	INCBIN "..\..\Perils\ogt\pal_s4.xgc"
+	
+	align 256
+XgmPalStage05:
+	INCBIN "..\..\Perils\ogt\pal_s5.xgc"
+	
+	align 256
+XgmPalTitle:
+	INCBIN "..\..\Perils\ogt\pal_title.xgc"	
+	
+
+
+    End Asm
+
+
+'' And now more code. Beautiful.
+
+Declare Function select_level()
+	prepareMyGameStuff
+	
+	SetGfxPlane SCROLL_B
+	Cls
+	SetGfxPlane SCROLL_A
+	Cls
+	Reload debug_text_1
+	titlePrnTxt 5, 8
+	Reload debug_text_3
+	titlePrnTxt 7, 10
+	Reload debug_text_2
+	titlePrnTxt 7, 12
+	Reload debug_text_4
+	titlePrnTxt 7, 14
+
+	DrawTilesInc2 96, 0, 18, 10, 2
+
+	dothis = 1
+	pressed = 0
+	res = 1
+	Do
+		MoveSprite sprHeart, 128 + 40, 128 + (8 * 8) + (res * 16)
+		j = JoyPad()
+		If j.0 [And] res > 1 [And] pressed <> 1 Then
+			pressed = 1
+			res = res - 1
+			playSound 13
+		End If
+		If j.1 [And] res < 3 [And] pressed <> 2 Then
+			pressed = 2
+			res = res + 1
+			playSound 13
+		End If
+		If j.4 [Or] j.5 [Or] j.6 [Or] j.7 Then dothis = 0
+		If j = 0 Then pressed = 0
+	Loop While dothis = 1
+	MoveSprite sprHeart, 0, 0
+	playSound 12
+	Sleep 60				' Let the sound ring...
+	Return res
+End Select
+
+'' Does resonators
+Declare Sub do_resonators()
+	x = plX >> 6
+	y = plY >> 6
+
+	If resnOn = 0 Then
+		If x >= resnX - 15 [And] x <= resnX + 15 Then
+			If y >= resnY - 24 [And] y <= resnY - 16 Then
+				If plVY > #ZERO Then
+					resnOn = 1
+					resnCt = 9
+					resnCtFrames = 0
+					PropSprite sprResn, 1097, 3
+					set_pal_bw
+					plVY = 32608
+					playSound 8
+					'resnCtShow = 1
+				End If
+			End If
+		End If
+	Else
+		' Press but no action
+		'If x >= resnX - 15 [AND] x <= resnX + 15 Then
+		'	If y >= resnY - 24 [AND] y <= resnY - 16 Then
+		'		If plVY > #ZERO Then
+		'			plVY = 32608
+		'		End If
+		'	End If
+		'End If
+
+		' Paint countdown
+		PropSprite sprResnCd, cd_spr_offs(resnCt), 0
+		If resnCtShow = 1 Then
+			MoveSprite sprResnCd, resnX + 4, resnY + 8
+		Else
+			MoveSprite sprResnCd, 0, 0
+		End If
+
+		resnCtFrames = resnCtFrames + 1
+		If resnCt <= 3 [And] resnCtFrames = resnFrames / 2 Then playSound 15
+		If resnCtFrames >= resnFrames Then
+			resnCtFrames = 0
+			If resnCt > 0 Then
+				If resnCt = 5 Then 
+					playSound 14
+				End If
+				If resnCt = 1 Then
+					playSound 16
+				Else
+					playSound 15
+				End If
+				resnCt = resnCt - 1
+			Else
+				resnOn = 0
+				PropSprite sprResn, 1088, 3
+				MoveSprite sprResnCd, 0, 0
+				set_pal_nm
+			End If
+		End If
+	End If
+End Sub
+
+Declare Sub set_pal_bw()
+	Select Case level
+		Case 1:
+			Pallettes palletteData_setfg_1_bw, 1, 0, 16
+			Pallettes palletteData_setbg_1_bw, 2, 0, 16
+			Pallettes palletteData_spriteset_1_bw, 3, 0, 16
+			Exit Select
+		Case 2:
+			Pallettes palletteData_setfg_2_bw, 1, 0, 16
+			Pallettes palletteData_setbg_2_bw, 2, 0, 16
+			Pallettes palletteData_spriteset_2_bw, 3, 0, 16
+			Exit Select
+		Case 3:
+			Pallettes palletteData_setfg_3_bw, 1, 0, 16
+			Pallettes palletteData_setbg_3_bw, 2, 0, 16
+			Pallettes palletteData_spriteset_3_bw, 3, 0, 16
+			Exit Select
+		Case 4:
+			Pallettes palletteData_setfg_4_bw, 1, 0, 16
+			Pallettes palletteData_setbg_4_bw, 2, 0, 16
+			Pallettes palletteData_spriteset_4_bw, 3, 0, 16
+			Exit Select
+		Case 5:
+			Pallettes palletteData_setfg_5_bw, 1, 0, 16
+			Pallettes palletteData_setbg_5_bw, 2, 0, 16
+			Pallettes palletteData_spriteset_5_bw, 3, 0, 16
+			Exit Select
+	End Select
+End Sub
+
+Declare Sub set_pal_nm()
+	Select Case level
+		Case 1:
+			Pallettes palletteData_setfg_1, 1, 0, 16
+			Pallettes palletteData_setbg_1, 2, 0, 16
+			Pallettes palletteData_spriteset_1, 3, 0, 16
+			Exit Select
+		Case 2:
+			Pallettes palletteData_setfg_2, 1, 0, 16
+			Pallettes palletteData_setbg_2, 2, 0, 16
+			Pallettes palletteData_spriteset_2, 3, 0, 16
+			Exit Select
+		Case 3:
+			Pallettes palletteData_setfg_3, 1, 0, 16
+			Pallettes palletteData_setbg_3, 2, 0, 16
+			Pallettes palletteData_spriteset_3, 3, 0, 16
+			Exit Select
+		Case 4:
+			Pallettes palletteData_setfg_4, 1, 0, 16
+			Pallettes palletteData_setbg_4, 2, 0, 16
+			Pallettes palletteData_spriteset_4, 3, 0, 16
+			Exit Select
+		Case 5:
+			Pallettes palletteData_setfg_5, 1, 0, 16
+			Pallettes palletteData_setbg_5, 2, 0, 16
+			Pallettes palletteData_spriteset_5, 3, 0, 16
+			Exit Select
+	End Select
+End Sub
+
+'' Load the correct sprite frames for enemies from ROM to VRAM
+'' (based on enemy type in current screen)
+Declare Sub load_spr_tiles(n_enem As Integer, n_sprite As Integer)
+	' Loads 72 tiles into n_enem tileset
+	Local vram_offset As Integer
+	Local tileset_offset As Integer
+	vram_offset = 620 + (n_enem * 72)
+	tileset_offset = 108 + (n_sprite * 72)
+	Select Case level
+		Case 1:
+			LoadTiles tileData_spriteset_1, 72, vram_offset, tileset_offset
+			Exit Select
+		Case 2:
+			LoadTiles tileData_spriteset_2, 72, vram_offset, tileset_offset
+			Exit Select
+		Case 3:
+			LoadTiles tileData_spriteset_3, 72, vram_offset, tileset_offset
+			Exit Select
+		Case 4:
+			LoadTiles tileData_spriteset_4, 72, vram_offset, tileset_offset
+			Exit Select
+		Case 5:
+			LoadTiles tileData_spriteset_5, 72, vram_offset, tileset_offset
+			Exit Select
+	End Select
+End Sub
+
+'' Draws a tile layer. Auxiliary to draw_scr.
+Declare Sub draw_layer(pal As Integer, beh As Integer)
+	' Point to current screen:
+	offsetL& = 260 * n_pant
+	DATAPTR& = DataPtr&()+offsetL&
+	estrujIdx = 0
+
+	' Draw 260 tiles:
+	x = 0
+	y = 0
+	idx = 0
+	For tilesctr = 1 To 260
+		Read tile
+		If beh = 1 Then
+			pattr(x, y) = behaviours(tile)
+			'' Detect estrujator
+			If estrujs_on = 1 Then
+				If tile >= 43 [And] tile <= 45 Then
+					' 0:x 1:y 2:state 3:steps 4:ct 5:maxct 6:aux
+					estruj(estrujIdx, 0) = x + x
+					estruj(estrujIdx, 1) = 3 + y + y
+					estruj(estrujIdx, 2) = 0
+					estruj(estrujIdx, 3) = 0
+					estruj(estrujIdx, 4) = 0
+					estruj(estrujIdx, 5) = 32 * (tile - 42)
+					estrujIdx = estrujIdx + 1
+				End If
+			End If
+		End If
+		tile = tile << 2
+		If beh = 0 [And] level > 3 [And] x < 24 Then DrawTilesInc 256 + tile + Pallette (pal), 40 + x + x, 1 + y + y, 2, 2
+		DrawTilesInc 256 + tile + Pallette (pal), x + x, 1 + y + y, 2, 2
+
+		x = x + 1
+		If x = 20 Then
+			x = 0
+			y = y + 1
+		End If
+	Next tilesctr
+End Sub
+
+Declare Sub move_estruj
+	
+	For i = 0 To 7
+		' 0:x 1:y 2:state 3:steps 4:ct 5:maxct 6:aux
+		Select Case estruj(i, 2)
+			Case 0:
+		
+				' 256 + 47*4 = 444
+				DrawTilesInc 444 + Pallette (1), estruj(i, 0), estruj(i, 1), 2, 2
+				' xx = estruj(i, 0) >> 1
+				' yy = (estruj(i, 1) - 1) >> 1
+				' pattr(xx, yy) = 0
+				estruj(i, 4) = estruj(i, 4) + 1
+				If estruj(i, 4) >= estruj(i, 5) Then
+					estruj(i, 2) = 1
+					estruj(i, 3) = 0
+				End If
+				Exit Select
+				
+			Case 1:
+		
+				estruj(i, 3) = estruj(i, 3) + 1
+				For tr = 0 To estruj(i, 3) - 1
+					DrawTilesInc 440 + Pallette (1), estruj(i, 0), estruj(i, 1) + tr, 2, 1
+				Next tr
+				DrawTilesInc 444 + Pallette (1), estruj(i, 0), estruj(i, 3) + estruj(i, 1), 2, 2
+				xx = estruj(i, 0) >> 1
+				yy = (estruj(i, 3) + estruj(i, 1) - 1) >> 1
+				pattr(xx, yy) = 8
+				If estruj(i, 3) = 4 Then
+					estruj(i, 2) = 2
+					estruj(i, 4) = 0
+					playSound 9
+				End If
+				Exit Select
+				
+			Case 2:
+		
+				estruj(i, 4) = estruj(i, 4) + 1
+				If estruj(i, 4) >= 25 Then
+					estruj(i, 2) = 3
+				End If
+				
+				'' collisions
+		
+				xb0 = 132 + (estruj(i, 0) << 3)
+				yb0 = 120 + (estruj(i, 1) << 3)
+				xb1 = xb0 + 8
+				yb1 = yb0 + ((2 + estruj(i, 3)) << 3) - 1
+				x = plX >> 6
+				y = plY >> 6
+				If x >= xb0 - 15 [And] x <= xb1 Then
+					If y >= yb0 [And] y <= yb1 Then
+						one_life_less
+						If plVX > #ZERO Then
+							plVX = #ZERO - 128
+						Else
+							plVX = #ZERO + 128
+						End If
+						playSound 3
+					End If
+				End If
+				
+				Exit Select
+				
+			Case 3:
+		
+				xx = estruj(i, 0) >> 1
+				yy = (estruj(i, 3) + estruj(i, 1) - 1) >> 1
+				pattr(xx, yy) = 0
+	
+				estruj(i, 3) = estruj(i, 3) - 1
+				If estruj(i,3)<>0 Then
+					For tr = 0 To estruj(i, 3) - 1
+						DrawTilesInc 440 + Pallette (1), estruj(i, 0), estruj(i, 1) + tr, 2, 1
+					Next tr
+				End If
+				DrawTilesInc 444 + Pallette (1), estruj(i, 0), estruj(i, 3) + estruj(i, 1), 2, 2
+	
+				DrawTilesInc 256, estruj(i, 0), estruj(i, 3) + estruj(i, 1) + 2, 2, 1
+				If estruj(i, 3) = 0 Then
+					estruj(i, 2) = 0
+					estruj(i, 4) = 0
+				End If
+				Exit Select
+				
+		End Select
+		
+	Next i
+End Sub
+
+'' Loads behaviours into RAM
+Declare Sub load_behaviours
+	DATAPTR& = ptrBeh&
+	For i = 0 To 47
+		ReadInt behaviours(i)
+	Next i
+End Sub
+
+''
+Declare Sub scrolly_effect
+	vIdx = &HA802
+	totete = frame_counter
+	For i = 0 To 25
+		totete = (totete + 1) And 63
+		pichurrina = (sine_table_16(totete) >> 1)
+		VdpRamWrite vIdx, 512 - pichurrina
+		vIdx = vIdx + &H20
+		Scroll2 UP, pichurrina, i
+	Next i
+End Sub
+
+''
+Declare Sub scrolly_reset
+	For i = 1 To 26
+		Scroll2 RIGHT, 0, i
+		If i < 21 Then Scroll2 UP, 0, i - 1
+	Next i
+End Sub
+
+'' Returns cell behaviour
+Declare Function attr(atx, aty)
+	If atx > 19 [Or] aty > 12 Then Return 0
+	Return pattr(atx, aty)
+End Function
+
+'' Heart (simple) animation and collision check
+Declare Sub move_heart()
+	If heartAct = 0 Then Exit Sub
+	If half_life = 0 Then heartX = heartX - 1
+	r = Rnd(2)
+	If r = 0 Then
+		heartY = heartY - 1
+	ElseIf r = 1 Then
+		heartY = heartY + 1
+	End If
+	If heartX = 112 Then heartAct = 0
+
+	' Don't show nor collide if not on current screen
+	If heartNPant <> n_pant Then Exit Sub
+
+	MoveSprite sprHeart, heartX, heartY
+
+	' Collide
+	x = plX >> 6
+	y = 8 + (plY >> 6)
+	If y >= heartY - 15 [And] y <= heartY + 15 Then
+		If x >= heartX - 15 [And] x <= heartX + 15 Then
+			heartAct = 0
+			MoveSprite sprHeart, 0, 0
+			plLife = plLife + 1
+			hud
+			playSound 6
+		End If
+	End If
+End Sub
+
+'' Precalculates mx or my upon boundary values
+'' for lineal movement enemies
+Declare Function directn(dir_a, dir_b, dir_v)
+	If dir_a = dir_b Then
+		res = #ZERO
+	ElseIf dir_a > dir_b Then
+		res = #ZERO + dir_v
+	Else
+		res = #ZERO - dir_v
+	End If
+	Return res
+End Function
+
+'' Load extra objects (keys/bolts/blocks...) into RAM
+Declare Sub load_extra_objects()
+
+	DATAPTR& = ptrExtra&
+
+	For i = 0 To 287
+		Read d	' type
+		extra_objects(i,4) = d
+
+		Read d	' x, rx
+		extra_objects(i,0) = d
+		extra_objects(i,2) = 128 + (d << 4)
+		Read d	' y, ry
+		extra_objects(i,1) = d
+		extra_objects(i,3) = 136 + (d << 4)
+	Next i
+End Sub
+
+Declare Sub resetThis(idx As Integer)
+	DATAPTR& = ptrExtra& + (idx * 3)
+	
+	Read d 'type, skip
+	Read d 'x, rx
+	extra_objects(idx,0) = d
+	extra_objects(idx,2) = 128 + (d << 4)
+	Read d 'y, ry
+	extra_objects(idx,1) = d
+	extra_objects(idx,3) = 136 + (d << 4)
+	
+	extra_objects(idx,5) = 0 ' idle me.
+End Sub
+
+'' Aux (used in hud)
+Declare Sub print_num1(pn1n As Integer, pn1v As Integer)
+	If pn1v > 9 Then pn1v = 9
+	PropSprite hudSprs(pn1n), 128 + pn1v + pn1v, 0
+End Sub
+
+'' Aux (used in hud)
+Declare Sub print_num2(pn2n As Integer, pn2v As Integer)
+	If pn2v > 99 Then pn2v = 99
+	v1 = pn2v / 10
+	v2 = pn2v % 10
+	PropSprite hudSprs(pn2n), 128 + v1 + v1, 0
+	PropSprite hudSprs(pn2n + 1), 128 + v2 + v2, 0
+End Sub
+
+'' Detects the player getting out of the screen (flick screen)
+Declare Sub change_screen
+	Select Case plOutOfBounds
+		Case 1:
+			'' plX < 8192
+			nn_pant = n_pant - 1
+			plX = 27648
+			Exit Sub
+		Case 2:
+			'' plX > 27648
+			nn_pant = n_pant + 1
+			plX = 8192
+			Exit Sub
+		Case 3:
+			'' plVY < #ZERO [AND] plY <= 8192 [AND] n_pant >= #map_w
+			nn_pant = n_pant - #map_w
+			' (128 + 192) * 64
+			plY = 20480 - 256
+			Exit Sub
+		Case 4:
+			'' plVY > #ZERO [AND] plY >= 20480
+			nn_pant = n_pant + #map_w
+			plY = 8192
+			Exit Sub
+	End Select
+End Sub
+
+'' Substracts one life and makes the player flicker
+Declare Sub one_life_less()
+	If plFlicker = 0 Then
+		plFlicker = 1
+		plCtr = 120
+		plLife = plLife - 1
+		hud
+		playSound 2
+	End If
+End Sub
+
+Declare Sub showattr
+	For say = 0 To 12
+		For sax = 0 To 19
+			DrawTile 48 + pattr(sax, say), sax+sax, 1 + say+say
+		Next sax
+	Next say
+End Sub
+
+'' Fixes movable stuff when changing screens
+Declare Sub fix_movables
+	' Movable blocks
+	' 0:x 1:y 2:rx 3:ry 4:type 5:state{0 idle, 1 moving, ...} 6:dx
+	For fix_i = 0 To 7
+		exIdx = exoffs + fix_i
+		If extra_objects(exIdx, 5) <> 0 Then
+			extra_objects(exIdx, 5) = 0
+			extra_objects(exIdx, 2) = extra_objects(exIdx, 0) << 4
+		End If
+	Next fix_i
+
+	' Dying enemies
+	' 0:x 1:y 2:x1 3:y1 4:x2 5:y2 6:mx 7:my 8:t 9:st 10:ct 11:ct2
+	For fix_i = 0 To 3
+		enIdx = enoffs + fix_i
+		If enemies(enIdx, 9) = 3 Then
+			enemies(enIdx, 9) = 0
+			enemies(enIdx, 8) = 0
+		End If
+	Next fix_i
+
+	'' Heart
+	MoveSprite sprHeart, 0, 0
+End Sub
+
+'' Prepares level, sets up pointers, loads graphics and pals,
+'' loads structures into RAM, etc.
+Declare Sub prepare_level
+	Select Case level
+		Case 1:
+			estrujs_on = 0
+			GAME_B = 1
+
+			' Pointers
+			ptrMap0& = LblPtr&(map_layer_0_1)
+			ptrMap1& = LblPtr&(map_layer_1_1)
+			ptrExtra& = LblPtr&(map_extra_1)
+			ptrEnems& = LblPtr&(enemy_Data_1)
+			ptrBeh& = LblPtr&(behaviours_Data_1)
+			ptrResn& = LblPtr&(resonator_Data_1)
+
+			' Load palettes
+			Pallettes palletteData_setfg_1, 1, 0, 16
+			Pallettes palletteData_setbg_1, 2, 0, 16
+			Pallettes palletteData_spriteset_1, 3, 0, 16
+
+			' 256 - onwards: tiles bg (192) & fg (64)
+			LoadTiles tileData_setfg_1, 192, 256
+			LoadTiles tileData_setbg_1, 64, 448
+
+			' 512 - onwards: sprites (X)
+			' 108 tiles for main characters.
+			' 72x3 = 288 tiles reserved for four enemies
+			' 18 tiles for two explosion frames (offset 540 in global set)
+			' 18 tiles for two platform frames (right after)
+			' 72 tiles for game over (offset 576 in global set; load to 944)
+			' 45 tiles for great!! (offset 648 in global set; load to 1016
+			' 27 tiles for floating dirty animation (offset 693 in global set; load to 1061
+			' 18 tiles for resonator OFF/ON (offset 720 in global set; load to 1088)
+			' 27 tiles for hit frames (offset 738 in global set; load to 1106)
+			LoadTiles tileData_spriteset_1, 108, 512
+			LoadTiles tileData_spriteset_1, 36, 908, 540
+			LoadTiles tileData_spriteset_1, 72, 944, 576
+			LoadTiles tileData_spriteset_1, 45, 1016, 648
+			LoadTiles tileData_spriteset_1, 27, 1061, 693
+			LoadTiles tileData_spriteset_1, 18, 1088, 720
+			LoadTiles tileData_spriteset_1, 27, 1106, 738
+
+			' In sum:
+			' Player frames at 512
+			' Enemy frames at 620, 692, 764 and 836
+			' Explosion frames at 908 and 917.
+			' Platform frames at 926 and 935
+			' Game Over at 944
+			' Great! At 1016
+			' Dirty at 1061
+			' Resonator at 1088
+			' Hit at 1106
+
+			s_pant = 30
+			plX = ((1 << 4) + 128) << 6
+			plY = ((9 << 4) + 128) << 6
+			heartFreq = 7
+			plNenem = 33
+			Exit Select
+
+		Case 2:
+			estrujs_on = 1
+			GAME_B = 1
+
+			ptrMap0& = LblPtr&(map_layer_0_2)
+			ptrMap1& = LblPtr&(map_layer_1_2)
+			ptrExtra& = LblPtr&(map_extra_2)
+			ptrEnems& = LblPtr&(enemy_Data_2)
+			ptrBeh& = LblPtr&(behaviours_Data_2)
+			ptrResn& = LblPtr&(resonator_Data_2)
+			Pallettes palletteData_setfg_2, 1, 0, 16
+			Pallettes palletteData_setbg_2, 2, 0, 16
+			Pallettes palletteData_spriteset_2, 3, 0, 16
+			LoadTiles tileData_setfg_2, 192, 256
+			LoadTiles tileData_setbg_2, 64, 448
+			LoadTiles tileData_spriteset_2, 108, 512
+			LoadTiles tileData_spriteset_2, 36, 908, 540
+			LoadTiles tileData_spriteset_2, 72, 944, 576
+			LoadTiles tileData_spriteset_2, 45, 1016, 648
+			LoadTiles tileData_spriteset_2, 27, 1061, 693
+			LoadTiles tileData_spriteset_2, 18, 1088, 720
+			LoadTiles tileData_spriteset_2, 27, 1106, 738
+			s_pant = 5
+			plX = ((4 << 4) + 128) << 6
+			plY = ((4 << 4) + 128) << 6
+			heartFreq = 3
+			plNenem = 90
+			Exit Select
+
+		Case 3:
+			estrujs_on = 0
+			GAME_B = 1
+
+			ptrMap0& = LblPtr&(map_layer_0_3)
+			ptrMap1& = LblPtr&(map_layer_1_3)
+			ptrExtra& = LblPtr&(map_extra_3)
+			ptrEnems& = LblPtr&(enemy_Data_3)
+			ptrBeh& = LblPtr&(behaviours_Data_3)
+			ptrResn& = LblPtr&(resonator_Data_3)
+			Pallettes palletteData_setfg_3, 1, 0, 16
+			Pallettes palletteData_setbg_3, 2, 0, 16
+			Pallettes palletteData_spriteset_3, 3, 0, 16
+			LoadTiles tileData_setfg_3, 192, 256
+			LoadTiles tileData_setbg_3, 64, 448
+			LoadTiles tileData_spriteset_3, 108, 512
+			LoadTiles tileData_spriteset_3, 36, 908, 540
+			LoadTiles tileData_spriteset_3, 72, 944, 576
+			LoadTiles tileData_spriteset_3, 45, 1016, 648
+			LoadTiles tileData_spriteset_3, 27, 1061, 693
+			LoadTiles tileData_spriteset_3, 18, 1088, 720
+			LoadTiles tileData_spriteset_3, 27, 1106, 738
+			s_pant = 30
+			plX = ((1 << 4) + 128) << 6
+			plY = ((3 << 4) + 128) << 6
+			heartFreq = 7
+			plNenem = 90
+			Exit Select
+			
+		Case 4:
+			estrujs_on = 0
+			GAME_B = 1
+
+			' Pointers
+			ptrMap0& = LblPtr&(map_layer_0_4)
+			ptrMap1& = LblPtr&(map_layer_1_4)
+			ptrExtra& = LblPtr&(map_extra_4)
+			ptrEnems& = LblPtr&(enemy_Data_4)
+			ptrBeh& = LblPtr&(behaviours_Data_4)
+			ptrResn& = LblPtr&(resonator_Data_4)
+
+			' Load palettes
+			Pallettes palletteData_setfg_4, 1, 0, 16
+			Pallettes palletteData_setbg_4, 2, 0, 16
+			Pallettes palletteData_spriteset_4, 3, 0, 16
+
+			' 256 - onwards: tiles bg (192) & fg (64)
+			LoadTiles tileData_setfg_4, 192, 256
+			LoadTiles tileData_setbg_4, 64, 448
+
+			LoadTiles tileData_spriteset_4, 108, 512
+			LoadTiles tileData_spriteset_4, 36, 908, 540
+			LoadTiles tileData_spriteset_4, 72, 944, 576
+			LoadTiles tileData_spriteset_4, 45, 1016, 648
+			LoadTiles tileData_spriteset_4, 27, 1061, 693
+			LoadTiles tileData_spriteset_4, 18, 1088, 720
+			LoadTiles tileData_spriteset_4, 27, 1106, 738
+
+			s_pant = 16
+			plX = ((8 << 4) + 128) << 6
+			plY = ((6 << 4) + 128) << 6
+			heartFreq = 7
+			plNenem = 33
+
+			Exit Select
+			
+		Case 5:
+			estrujs_on = 1
+			GAME_B = 1
+
+			ptrMap0& = LblPtr&(map_layer_0_5)
+			ptrMap1& = LblPtr&(map_layer_1_5)
+			ptrExtra& = LblPtr&(map_extra_5)
+			ptrEnems& = LblPtr&(enemy_Data_5)
+			ptrBeh& = LblPtr&(behaviours_Data_5)
+			ptrResn& = LblPtr&(resonator_Data_5)
+			Pallettes palletteData_setfg_5, 1, 0, 16
+			Pallettes palletteData_setbg_5, 2, 0, 16
+			Pallettes palletteData_spriteset_5, 3, 0, 16
+			LoadTiles tileData_setfg_5, 192, 256
+			LoadTiles tileData_setbg_5, 64, 448
+			LoadTiles tileData_spriteset_5, 108, 512
+			LoadTiles tileData_spriteset_5, 36, 908, 540
+			LoadTiles tileData_spriteset_5, 72, 944, 576
+			LoadTiles tileData_spriteset_5, 45, 1016, 648
+			LoadTiles tileData_spriteset_5, 27, 1061, 693
+			LoadTiles tileData_spriteset_5, 18, 1088, 720
+			LoadTiles tileData_spriteset_5, 27, 1106, 738
+			s_pant = 5
+			plX = ((18 << 4) + 128) << 6
+			plY = ((7 << 4) + 128) << 6
+			heartFreq = 3
+			plNenem = 90
+			Exit Select
+	End Select
+
+	plVX = #ZERO	' mimmick negative numbers
+	plVY = #ZERO
+	plFacing = 0
+	plFrame = 0
+	plLife = 10
+	plJumping = 0
+	plGotten = 0
+	plJumpCtr = 0
+	plFlicker = 0
+	plCtr = 0
+	plKeys = 0
+	plKilled = 0
+
+	' load enemies in RAM
+	load_enemies
+
+	' load extra objects in RAM
+	load_extra_objects
+
+	' Load tile behaviours
+	load_behaviours
+End Sub
+
+'' Win level animation
+Declare Sub win_level
+	Sleep 1
+	
+	For i = 0 To 4
+		MoveSprite sprGreat(i), 128 + (24 * i) + 100, 224
+	Next i
+
+	If level = 5 Then
+		If ntscTimings = 1 Then
+			Asm     
+				lea XgmNtscFsclear, a1
+			End Asm
+		Else
+			Asm     
+				lea XgmPalFsclear, a1
+			End Asm
+		End If
+	Else
+		If ntscTimings = 1 Then
+			Asm     
+				lea XgmNtscSclear, a1
+			End Asm
+		Else
+			Asm     
+				lea XgmPalSclear, a1
+			End Asm
+		End If
+	End If
+	
+	xgm_startPlayMusic
+	
+	If ntscTimings = 1 Then
+		frctr = 420
+	Else
+		frctr = 350
+	End If
+	
+	Do
+		' For some BEX reason, this won't work for levels 3 & 4. WTF!?
+		Sleep 1
+		' So I've added this (see below for credits) 
+		' vSync
+		
+		If frctr > 0 Then frctr = frctr - 1 Else Exit Do
+		If plY > 64 Then plY = plY - 48
+		If plFacing = 0 Then plX=plX+2 Else plX=plX-2
+		PropSprite sprPl, fl_spr_offs(((plY>>6)>>3) And 3), 3
+		MoveSprite sprPl, (plX >> 6) - 4, (plY >> 6)
+		move_enems
+		If estrujs_on = 1 Then move_estruj
+		For mli = 0 To 3
+			If enemies(enoffs + mli, 8) Then MoveSprite SprEn(mli), enemies(enoffs + mli, 0) - 4, enemies(enoffs + mli, 1) + 1
+		Next mli
+	Loop
+
+	xgm_stopPlayMusic
+End Sub
+
+'' Game over animation
+Declare Sub game_over
+	Sleep 1
+	
+	For i = 0 To 7
+		MoveSprite sprGameOver(i), 128 + (24 * i) + 64, 224
+	Next i
+	
+	MoveSprite sprPl, 0, 0
+	PlaySound 2
+
+	While JoyPad().6: Sleep 1: Wend
+	
+	If ntscTimings = 1 Then
+		Asm     
+			lea XgmNtscGover, a1
+		End Asm
+	Else
+		Asm
+			lea XgmPalGover, a1
+		End Asm
+	End If
+	xgm_startPlayMusic
+	
+	Do
+		Sleep 1
+		move_enems
+		If estrujs_on = 1 Then move_estruj
+		For mli = 0 To 3
+			If enemies(enoffs + mli, 8) Then MoveSprite SprEn(mli), enemies(enoffs + mli, 0) - 4, enemies(enoffs + mli, 1) + 1
+		Next mli
+		j = JoyPad()
+		If j.4 [Or] j.5 [Or] j.6 [Or] j.7 Then Exit Do
+	Loop
+	
+	xgm_stopPlayMusic
+End Sub
+
+'' Pause button
+Declare Sub pause_button
+	If JoyPad().7 Then
+		While JoyPad().7: Wend
+		playSound 6
+		xgm_stopPlayMusic
+		Do
+			If JoyPad().7 Then Exit Do
+		Loop
+		While JoyPad().7: Wend
+		playSound 11
+		If ntscTimings = 1 Then
+			Sleep 90
+		Else
+			Sleep 75
+		End If
+		xgm_resumePlayMusic
+	End If
+End Sub
+
+'' Title subs
+Declare Sub titlePrnTxt(x, y)
+	Do
+		ReadInt a
+		If a = 0 Then Exit Do
+		DrawTile Pallette(2) + a, x, y
+		x = x + 1
+	Loop
+End Sub
+
+Declare Sub TITLE
+	YOffs = 3
+
+	' Load stuff
+	SetGfxPlane SCROLL_B
+	Cls
+
+	Pallettes ti_sca_pd, 1, 0, 16
+	LoadTiles ti_sca_td, 48, 256
+
+	For ty = 0 To 29
+		For tx = 0 To 39
+			DrawTile Pallette(1) + 256 + 41, tx, ty
+		Next tx
+	Next ty
+
+	For i = 0 To 100
+		DrawTile Pallette(1) + Rnd(4) + 256 + 42, Rnd(40), Rnd(30)
+	Next i
+
+	For tx = 0 To 39
+		DrawTile Pallette(1) + 256 + 47, tx, YOffs + 1
+		DrawTile Pallette(1) + 256 + 46, tx, YOffs + 9
+	Next tx
+
+	Reload ti_sca_tm
+	For ty = 0 To 6
+		For tx = 0 To 39
+			ReadInt a
+			DrawTile Pallette(1) + 256 + a, tx - 4 , YOffs + 2 + ty
+			If tx < 8 Then DrawTile Pallette(1) + 256 + a, tx + 36, YOffs + 2 + ty
+		Next tx
+	Next ty
+
+	SetGfxPlane SCROLL_A
+	Cls
+
+	Pallettes ti_scb_pd, 2, 0, 16
+	LoadTiles ti_scb_td, 293, 512
+	LoadTiles csftd, 80, 32
+	
+	Pallettes slpd, 3, 0, 16
+	LoadTiles sltd, 24, 128
+		
+	sprHand = AddSprite(2, 2)
+	PropSprite sprHand, 147, 3
+		
+	Reload ti_scb_tm
+	For ty = 0 To 10
+		For tx = 0 To 39
+			ReadInt a
+			DrawTile Pallette(2) + 512 + a, tx, YOffs + ty
+		Next tx
+	Next ty
+
+	SetScrollMode HSCROLL_CELL, VSCROLL_OVERALL
+	SetScrollPlane SCROLL_B
+
+	Reload title_text_2
+	titlePrnTxt 5, 24
+	Reload title_text_3
+	titlePrnTxt 6, 26
+
+	If ntscTimings = 1 Then
+		Asm     
+			lea XgmNtscTitle,a1
+	    End Asm
+	Else
+		Asm
+			lea XgmPalTitle,a1
+		End Asm
+	End If
+    xgm_startPlayMusic
+
+    Enable SCREEN
+
+	state = 0: choice = 0
+	Do
+		Sleep 2
+		frame_counter = frame_counter + 1
+		For i = 5 To 11
+		Scroll2 RIGHT, sine_table_16(((frame_counter) + i) And 63), i
+		Next i
+
+		If state = 0 Then
+			If (frame_counter >> 4) And 1 Then
+				If language = 0 Then
+					Locate 17, 10: Print "PRESS START BUTTON"
+				Else
+					Locate 17, 9: Print "PULSA EL BOTON START"
+				End If
+			Else
+				If language = 0 Then
+					Locate 17, 10: Print "                  "
+				Else
+					Locate 17, 9: Print "                    "
+				End If
+			End If
+	
+			j = JoyPad()
+			If j.7 Then 
+				If language = 0 Then
+					Locate 17, 10: Print "                  "
+					Locate 16, 15: Print "NEW GAME"
+					Locate 18, 15: Print "CONTINUE"
+				Else
+					Locate 17, 9: Print "                    "
+					Locate 16, 15: Print "EMPEZAR"
+					Locate 18, 15: Print "CONTINUAR"
+				End If
+				
+				state = 1			
+				playSound 12
+			End If
+		Else
+			old = j
+			j = JoyPad()
+			If old<>j And j<>0 Then
+				If j.7 [Or] j.4 [Or] j.5 [Or] j.6 Then Exit Do
+				If j.0 [And] choice = 1 Then choice = 0: PlaySound 13
+				If j.1 [And] choice = 0 Then choice = 1: PlaySound 13
+			End If							
+			MoveSprite sprHand, 128 + 108, 128 + 132 + (16 * choice)
+		End If
+	Loop
+
+	FreeSprite sprHand
+	xgm_stopPlayMusic
+	playSound 12
+
+	While JoyPad().7: Wend
+
+	scrollyVMelt
+	
+	'SetGFXPlane SCROLL_A
+	'For ty = 0 To 29
+	'	For tx = 0 To 39
+	'		DrawTile 0, tx, ty
+	'	Next tx
+	'Next ty
+	'SetGFXPlane SCROLL_B
+	'For ty = 0 To 29
+	'	For tx = 0 To 39
+	'		DrawTile 0, tx, ty
+	'	Next tx
+	'Next ty
+
+	For i = 5 To 11
+		Scroll2 RIGHT, 0, i
+	Next i
+
+	Disable SCREEN
+End Sub
+
+Declare Sub playThisLevelMusic()
+	Select Case level
+		Case 1:
+			If ntscTimings = 1 Then
+				Asm
+					lea XgmNtscStage01, a1
+				End Asm
+			Else
+				Asm
+					lea XgmPalStage01, a1
+				End Asm
+			End If
+			xgm_startPlayMusic
+			Exit Select
+		Case 2:
+			If ntscTimings = 1 Then
+				Asm
+					lea XgmNtscStage02, a1
+				End Asm
+			Else
+				Asm
+					lea XgmPalStage02, a1
+				End Asm
+			End If
+			xgm_startPlayMusic
+			Exit Select
+		Case 3:
+			If ntscTimings = 1 Then
+				Asm
+					lea XgmNtscStage03, a1
+				End Asm
+			Else
+				Asm
+					lea XgmPalStage03, a1
+				End Asm
+			End If
+			xgm_startPlayMusic
+			Exit Select
+		Case 4:
+			If ntscTimings = 1 Then
+				Asm
+					lea XgmNtscStage04, a1
+				End Asm
+			Else
+				Asm
+					lea XgmPalStage04, a1
+				End Asm
+			End If
+			xgm_startPlayMusic
+			Exit Select
+		Case 5:
+			If ntscTimings = 1 Then
+				Asm
+					lea XgmNtscStage05, a1
+				End Asm
+			Else
+				Asm
+					lea XgmPalStage05, a1
+				End Asm
+			End If
+			xgm_startPlayMusic
+			Exit Select
+	End Select
+End Sub
+
+Declare Sub initializationStuff()
+	'' Detect TV Type, set values accordingly, set gfx mode
+	If TvType() = 0 Then
+		' NTSC
+		ntscTimings = 1
+		
+		TvSet 0
+		player_max_vy_fall	= 33194 '426 + #ZERO
+		player_g			= 10
+		player_max_vy_jump	= 216
+		player_jump_incr	= 50
+		player_jump_ini		= 33
+
+		player_max_vx		= 106
+		player_ax 			= 13
+		player_fx			= 20
+
+		player_conveyor		= 73 '(payer_max_vx * 2) / 3
+
+		resnFrames			= 72
+	Else
+		' PAL
+		ntscTimings = 0
+		
+		TvSet 1
+		player_max_vy_fall	= 33280 '512 + #ZERO
+		player_g			= 12
+		player_max_vy_jump	= 256
+		player_jump_incr	= 50
+		player_jump_ini		= 40
+
+		player_max_vx		= 128
+		player_ax 			= 16
+		player_fx			= 24
+
+		player_conveyor		= 85 ' (payer_max_vx * 2) / 3
+
+		resnFrames			= 60
+	End If
+End Sub
+
+Declare Sub prepareMyGameStuff
+	'' Palettes
+	' Palettes 1 & 2 for tiles bg & fg
+	' Palette 3 for sprites
+	' Palette 0 for GUI
+
+	'Pallettes palletteData_hud, 0, 0, 16
+
+	'' Tilesets (general)
+
+	' 128 - onwards: hud (64)
+	LoadTiles tileData_hud, 52, 128
+	' 1280 - onwards: 7-segment digits
+	LoadTiles tileData_hud, 20, 96, 50
+
+	'' Sprite creation
+
+	' hud sprites
+	For mli = 0 To 7
+		hudSprs(mli) = AddSprite (2, 1)
+		PropSprite hudSprs(mli), 128, 0
+	Next mli
+	PropSprite hudSprs(0), 148, 0
+	PropSprite hudSprs(3), 150, 0
+	PropSprite hudSprs(6), 152, 0
+
+	' player sprite
+	sprPl = AddSprite (3, 3)
+	PropSprite sprPl, 512, 3
+
+	' enemy sprites
+	For mli = 0 To 3
+		SprEn(mli) = AddSprite (3, 3)
+		PropSprite sprEn(mli), 620 + (72 * mli), 3
+	Next mli
+
+	' resonator sprite
+	sprResnCd = AddSprite (2, 1)
+	PropSprite sprResnCd, cd_spr_offs (9), 0
+	sprResn = AddSprite (3, 3)
+	PropSprite sprResn, 1088, 3
+	resnOn = 0
+	resnCt = 9
+
+	' extra sprites (no prop)
+	For mli = 0 To 7
+		sprExtra(mli) = AddSprite (2, 2)
+	Next mli
+
+	' Heart
+	sprHeart = AddSprite (2, 2)
+	PropSprite sprHeart, 168, 0
+	
+	' Great
+	'1016
+	For i = 0 To 4
+		sprGreat(i) = AddSprite (3, 3)
+		PropSprite sprGreat(i), 1016 + (i * 9), 3
+	Next i
+	
+	' Game Over
+	For i = 0 To 7
+		sprGameOver(i) = AddSprite (3, 3)
+		PropSprite sprGameOver(i), 944 + (i * 9), 3
+	Next i
+End Sub
+
+''' Data
+
+pl_sprite_offsets_Data:
+	DataInt	512, 521, 530, 539, 548, 557, 1106
+	DataInt 566, 575, 584, 593, 602, 611, 1115
+
+fl_sprite_offsets_Data:
+	DataInt 1061, 1070, 1061, 1079
+
+en_sprite_offsets_Data:
+	DataInt 620, 629, 638, 647, 656, 665, 674, 683
+	DataInt 692, 701, 710, 719, 728, 737, 746, 755
+	DataInt 764, 773, 782, 791, 800, 809, 818, 827
+	DataInt 836, 845, 854, 863, 872, 881, 890, 899
+
+ex_sprite_offsets_Data:
+	DataInt 908, 917
+
+pt_sprite_offsets_Data:
+	DataInt 926, 935
+
+cd_sprite_offsets_Data:
+	'DataInt 1280, 1282, 1284, 1286, 1288
+	'DataInt 1290, 1292, 1294, 1296, 1298
+	DataInt 96, 98, 100, 102, 104
+	DataInt 106, 108, 110, 112, 114
+
+''' Debug select level Data
+
+' DEBUG - SELECT LEVEL
+debug_text_1:
+	DataInt 774, 775, 772, 791, 777, 512, 751, 512, 789, 775, 782
+	DataInt 775, 773, 790, 512, 782, 775, 792, 775, 782, 0
+
+' LEVEL TWO - FACTORY
+debug_text_2:
+	DataInt 782, 775, 792, 775, 782, 512, 790, 793, 785, 512, 751
+	DataInt 512, 776, 771, 773, 790, 785, 788, 795, 0
+
+' LEVEL ONE - TOWN
+debug_text_3:
+	DataInt 782, 775, 792, 775, 782, 512, 785, 784, 775, 512, 751
+	DataInt 512, 790, 785, 793, 784, 0
+
+' LEVEL THREE - CAVE
+debug_text_4:
+	DataInt 782, 775, 792, 775, 782, 512, 790, 778, 788, 775, 775
+	DataInt 512, 751, 512, 773, 771, 792, 775, 0
+
+''' Title Data
+
+title_text_1:
+	DataInt 786, 788, 775, 789, 789, 512, 789, 790, 771, 788, 790
+	DataInt 512, 772, 791, 790, 790, 785, 784, 0
+
+title_text_2:
+	DataInt 773, 785, 786, 795, 782, 775, 776, 790, 512, 756, 754
+	DataInt 755, 760, 512, 512, 790, 778, 775, 512, 783, 785, 780
+	DataInt 785, 784, 512, 790, 793, 779, 784, 789, 0
+
+title_text_3:
+	DataInt 786, 785, 774, 775, 793, 793, 793, 788, 512, 773, 785
+	DataInt 782, 782, 775, 773, 790, 779, 785, 784, 512, 792, 785
+	DataInt 782, 752, 512, 741, 754, 755, 0
+
+ti_sca_pd:
+	DataFile ti-sca-pd.BIN, BIN
+
+ti_sca_td:
+	DataFile ti-sca-td.BIN, BIN
+
+ti_sca_tm:
+	DataFile ti-sca-tm.BIN, BIN
+
+ti_scb_pd:
+	DataFile ti-scb-pd.BIN, BIN
+
+ti_scb_td:
+	DataFile ti-scb-td.BIN, BIN
+
+ti_scb_tm:
+	DataFile ti-scb-tm.BIN, BIN
+
+''' Game Data
+
+sine_table_16_Data:
+	DataInt 32764, 32765, 32767, 32768, 32770, 32771, 32772, 32774
+	DataInt 32775, 32776, 32777, 32778, 32778, 32779, 32779, 32779
+	DataInt 32780, 32779, 32779, 32779, 32778, 32778, 32777, 32776
+	DataInt 32775, 32774, 32772, 32771, 32770, 32768, 32767, 32765
+	DataInt 32763, 32762, 32760, 32759, 32757, 32756, 32755, 32753
+	DataInt 32752, 32751, 32750, 32749, 32749, 32748, 32748, 32748
+	DataInt 32748, 32748, 32748, 32748, 32749, 32749, 32750, 32751
+	DataInt 32752, 32753, 32755, 32756, 32757, 32759, 32760, 32762
+
+sine_table_16_2_Data:
+	DataInt 32771, 32772, 32774, 32775, 32776, 32778
+	DataInt 32779, 32780, 32781, 32782, 32782, 32783, 32783, 32783
+	DataInt 32784, 32783, 32783, 32783, 32782, 32782, 32781, 32780
+	DataInt 32779, 32778, 32776, 32775, 32774, 32772, 32771, 32769
+	DataInt 32767, 32766, 32764, 32763, 32761, 32760, 32759, 32757
+	DataInt 32756, 32755, 32754, 32753, 32753, 32752, 32752, 32752
+	DataInt 32752, 32752, 32752, 32752, 32753, 32753, 32754, 32755
+	DataInt 32756, 32757, 32759, 32760, 32761, 32763, 32764, 32766
+	DataInt 32768, 32769
+
+tileData_hud:
+	DataFile hud.BIN, BIN
+
+palletteData_hud:
+	DataInt	$0000,$048E,$0420,$0006,$022A,$06EE,$0264,$0042
+	DataInt	$0E86,$0EAA,$086E,$0CEE,$0ECE,$002E,$0644,$044C
+	
+'' New level animation
+nla_pd:
+	DataInt	$0000,$022A,$002E,$0006,$048E,$06EE,$0000,$0000
+	DataInt	$0000,$0000,$0000,$0000,$0000,$0000,$0000,$0000
+
+nla_td:
+	DataFile nla.BIN, BIN
+	
+'' Level 1 includes
+
+tileData_setfg_1:
+	DataFile l1setfg.BIN, BIN
+
+tileData_setbg_1:
+	DataFile l1setbg.BIN, BIN
+
+tileData_spriteset_1:
+	DataFile l1spriteset.BIN, BIN
+
+palletteData_setfg_1:
+	DataInt	$0000,$0466,$0024,$0246,$0042,$0222,$06AA,$0ACC
+	DataInt	$0688,$0264,$0486,$0642,$0864,$0004,$0444,$0666
+
+palletteData_setfg_1_bw:
+	DataInt $0000,$0444,$0222,$0444,$0222,$0222,$0888,$0AAA
+	DataInt $0666,$0444,$0666,$0444,$0666,$0000,$0444,$0666
+
+palletteData_setbg_1:
+	DataInt	$0600,$0600,$0A02,$0642,$00EE,$0602,$0402,$0EA8
+	DataInt	$0620,$0420,$0820,$0000,$0000,$0000,$0000,$0000
+
+palletteData_setbg_1_bw:
+	DataInt $0000,$0000,$0222,$0444,$0AAA,$0222,$0000,$0AAA
+	DataInt $0222,$0222,$0222,$0000,$0000,$0000,$0000,$0000
+
+palletteData_spriteset_1:
+	DataInt	$0000,$0222,$0280,$02A4,$02CA,$020C,$004E,$046E
+	DataInt	$068E,$08CE,$00AE,$0CCA,$0EEE,$0A64,$08AE,$0000
+		
+palletteData_spriteset_1_bw:
+	DataInt $0000,$0222,$0444,$0666,$0888,$0222,$0444,$0666
+	DataInt $0888,$0AAA,$0888,$0AAA,$0EEE,$0666,$0AAA,$0000
+
+map_layer_0_1:
+	DataFile l1map.0.BIN, BIN
+
+map_layer_1_1:
+	DataFile l1map.1.BIN, BIN
+
+behaviours_Data_1:
+	DataInt 0, 0, 0, 8, 0, 0, 8, 8, 8, 8, 0, 8, 0, 0, 0, 4
+	DataInt 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 8, 8, 8, 8, 8
+	DataInt 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 1, 0, 8, 8
+
+    ' Data t, x, y ;; 1->key 2->bolt 3->block 4->life...
+	' 8*3 = 24 bytes per screen
+map_extra_1:
+    Data 2, 11, 5, 3, 14, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 18, 3, 3, 14, 7, 3, 17, 9, 3, 9, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 13, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 2, 5, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+	' Data t, x1, y1, x2, y2, v
+enemy_Data_1:
+	Data 1, 5, 5, 9, 5, 2, 2, 17, 11, 5, 11, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 3, 15, 2, 9, 2, 1, 2, 8, 2, 3, 2, 2, 5, 17, 8, 17, 7, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 8, 8, 7, 15, 7, 1, 8, 17, 6, 17, 11, 1, 1, 15, 11, 6, 11, 2, 3, 9, 3, 14, 3, 1
+	Data 4, 9, 4, 12, 10, 2, 6, 3, 3, 3, 4, 0, 6, 16, 9, 16, 8, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 12, 6, 12, 9, 1, 2, 9, 6, 11, 6, 1, 8, 17, 4, 10, 4, 1, 8, 2, 3, 2, 10, 2
+	Data 6, 5, 4, 5, 5, 0, 4, 13, 7, 13, 2, 1, 1, 7, 11, 1, 11, 2, 4, 17, 3, 3, 3, 2
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 6, 2, 6, 10, 2, 5, 10, 4, 10, 3, 0, 5, 13, 7, 14, 6, 0, 8, 3, 3, 6, 3, 1
+	Data 1, 10, 5, 3, 5, 1, 1, 10, 11, 2, 11, 2, 4, 13, 1, 13, 11, 2, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 8, 16, 11, 16, 7, 1, 6, 7, 8, 7, 7, 1, 6, 11, 6, 11, 5, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 9, 2, 9, 6, 2, 4, 10, 1, 10, 5, 1, 4, 16, 8, 18, 11, 2, 8, 3, 3, 2, 3, 1
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 1, 4, 5, 11, 5, 2, 4, 3, 2, 3, 11, 2, 3, 16, 11, 7, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 16, 2, 17, 9, 1, 2, 15, 11, 11, 11, 1, 1, 9, 11, 2, 11, 1, 8, 6, 5, 6, 2, 1
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+' total: 33
+
+resonator_Data_1:
+	Data 1, 7
+	Data 15, 5
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 16, 3
+	Data 14, 3
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 10, 9
+	Data 14, 4
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 5, 7
+	Data 15, 3
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 5, 9
+	Data 15, 6
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 1, 7
+	Data 5, 5
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+	Data 0, 0
+
+'' Level 2 includes
+
+tileData_setfg_2:
+	DataFile l2setfg.BIN, BIN
+
+tileData_setbg_2:
+	DataFile l2setbg.BIN, BIN
+
+tileData_spriteset_2:
+	DataFile l2spriteset.BIN, BIN
+
+palletteData_setfg_2:
+	DataInt	$0000,$0224,$08AC,$068A,$0668,$0446,$0046,$0248
+	DataInt	$024A,$0220,$0A86,$0864,$0442,$0000,$0000,$0000
+
+palletteData_setfg_2_bw:
+	DataInt $0000,$0222,$0AAA,$0888,$0666,$0444,$0222,$0444
+	DataInt $0444,$0000,$0888,$0666,$0222,$0000,$0000,$0000
+
+palletteData_setbg_2:
+	DataInt	$0000,$0446,$0444,$0224,$0644,$0426,$0448,$0406
+	DataInt	$0204,$0202,$0404,$0422,$0222,$0646,$08AC,$088A
+
+palletteData_setbg_2_bw:
+	DataInt $0000,$0444,$0444,$0222,$0444,$0222,$0444,$0222
+	DataInt $0000,$0000,$0222,$0222,$0222,$0444,$0AAA,$0888
+
+palletteData_spriteset_2:
+	DataInt $0000,$0222,$0280,$02A4,$00AA,$0826,$084A,$0800
+	DataInt $0A62,$0A64,$0CCA,$0EEE,$08AE,$068E,$046E,$08CE
+
+palletteData_spriteset_2_bw:
+	DataInt $0000,$0222,$0444,$0666,$0666,$0444,$0666,$0222
+	DataInt $0666,$0666,$0AAA,$0EEE,$0AAA,$0888,$0666,$0AAA
+
+map_layer_0_2:
+	DataFile l2map.0.BIN, BIN
+
+map_layer_1_2:
+	DataFile l2map.1.BIN, BIN
+
+behaviours_Data_2:
+	DataInt 0, 4, 4, 4, 4, 0, 0, 0, 8, 8, 8, 8, 8, 8, 4, 4
+	DataInt 8, 8, 8, 8, 5, 6, 1, 1, 2, 2, 8, 8, 8, 4, 0, 0
+	DataInt 8, 8, 8, 8, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 0, 0
+
+map_extra_2:
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 6, 3, 3, 6, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 18, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 2, 6, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 16, 5, 3, 16, 6, 3, 16, 7, 3, 16, 8, 3, 16, 9, 3, 16, 10, 0, 0, 0, 0, 0, 0
+    Data 3, 17, 10, 3, 17, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 15, 3, 3, 16, 7, 3, 16, 8, 2, 14, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 14, 4, 3, 17, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 14, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 2, 4, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 18, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+enemy_Data_2:
+	Data 6, 3, 4, 2, 5, 1, 6, 13, 5, 13, 6, 1, 6, 9, 9, 9, 10, 1, 1, 8, 11, 4, 11, 1
+	Data 4, 17, 1, 17, 7, 2, 8, 7, 7, 7, 1, 1, 8, 2, 2, 2, 7, 1, 3, 18, 11, 9, 11, 1
+	Data 4, 13, 1, 13, 6, 1, 4, 17, 1, 17, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 2, 12, 2, 1, 2, 1, 1, 6, 5, 18, 5, 2, 3, 10, 8, 1, 8, 1, 0, 0, 0, 0, 0, 0
+	Data 6, 8, 4, 8, 3, 1, 4, 2, 3, 2, 11, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 6, 3, 7, 3, 8, 1, 6, 10, 10, 10, 9, 1, 4, 6, 1, 16, 5, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 18, 11, 12, 11, 1, 2, 7, 11, 2, 11, 1, 3, 12, 8, 18, 8, 1, 4, 8, 4, 2, 4, 1
+	Data 4, 18, 2, 18, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 4, 4, 8, 4, 1, 1, 14, 4, 6, 4, 2, 5, 2, 5, 2, 4, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 12, 4, 4, 4, 1, 8, 17, 5, 17, 11, 1, 4, 13, 11, 4, 11, 2, 0, 0, 0, 0, 0, 0
+	Data 6, 2, 2, 2, 3, 1, 2, 10, 5, 16, 5, 1, 4, 15, 11, 8, 11, 1, 8, 17, 6, 17, 11, 1
+	Data 8, 9, 4, 9, 10, 1, 4, 10, 3, 17, 7, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 8, 4, 4, 4, 10, 1, 6, 7, 8, 6, 8, 1, 4, 16, 5, 16, 11, 2, 0, 0, 0, 0, 0, 0
+	Data 8, 18, 11, 1, 11, 1, 4, 17, 5, 10, 5, 1, 3, 6, 5, 11, 5, 1, 1, 8, 5, 2, 5, 1
+	Data 8, 2, 5, 2, 11, 1, 6, 5, 3, 5, 4, 1, 6, 16, 3, 16, 4, 1, 4, 2, 4, 2, 10, 1
+	Data 1, 2, 6, 15, 6, 2, 2, 14, 6, 3, 6, 1, 3, 3, 11, 15, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 12, 3, 4, 3, 1, 2, 13, 11, 9, 11, 1, 5, 16, 3, 16, 4, 1, 8, 13, 4, 13, 10, 1
+	Data 4, 9, 2, 9, 11, 1, 4, 13, 2, 13, 11, 1, 2, 3, 8, 1, 8, 1, 0, 0, 0, 0, 0, 0
+	Data 8, 1, 7, 9, 7, 1, 8, 16, 7, 10, 7, 1, 4, 4, 3, 16, 6, 1, 4, 18, 1, 18, 6, 1
+	Data 1, 18, 4, 11, 4, 1, 3, 18, 8, 9, 8, 1, 2, 1, 4, 5, 4, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 8, 7, 3, 7, 1, 2, 8, 4, 12, 4, 1, 4, 15, 2, 15, 6, 2, 0, 0, 0, 0, 0, 0
+	Data 6, 8, 6, 8, 7, 1, 6, 17, 4, 16, 4, 1, 1, 15, 5, 10, 5, 1, 0, 0, 0, 0, 0, 0
+	Data 6, 4, 3, 4, 4, 1, 6, 10, 3, 10, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 1, 18, 8, 10, 8, 1, 2, 7, 5, 17, 5, 2, 4, 1, 4, 5, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 2, 2, 5, 9, 5, 1, 2, 17, 5, 12, 5, 1, 3, 6, 5, 15, 5, 2, 0, 0, 0, 0, 0, 0
+	Data 1, 16, 11, 5, 11, 2, 6, 14, 8, 13, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 11, 7, 18, 11, 1, 4, 18, 1, 11, 5, 1, 2, 7, 11, 4, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 5, 7, 5, 11, 1, 4, 15, 11, 15, 8, 1, 4, 8, 1, 8, 5, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 6, 5, 11, 5, 2, 1, 11, 11, 5, 11, 1, 1, 10, 8, 13, 8, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 10, 9, 16, 9, 1, 4, 18, 11, 12, 11, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 6, 3, 9, 3, 10, 1, 5, 5, 7, 5, 8, 1, 5, 14, 7, 15, 7, 1, 6, 16, 10, 16, 9, 1
+	Data 3, 2, 11, 16, 11, 1, 4, 3, 2, 2, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 3, 17, 4, 5, 4, 2, 4, 3, 5, 3, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 1, 2, 4, 18, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 13, 2, 13, 11, 1, 2, 9, 4, 1, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+' total: 90
+
+resonator_Data_2:
+	Data 18, 9
+	Data 11, 5
+	Data 15, 11
+	Data 3, 11
+	Data 17, 8
+	Data 0, 0
+	Data 15, 5
+	Data 15, 11
+	Data 0, 0
+	Data 17, 11
+	Data 2, 9
+	Data 2, 11
+	Data 0, 0
+	Data 12, 6
+	Data 0, 0
+	Data 18, 10
+	Data 0, 0
+	Data 3, 2
+	Data 11, 3
+	Data 18, 9
+	Data 9, 8
+	Data 0, 0
+	Data 3, 3
+	Data 0, 0
+	Data 8, 11
+	Data 0, 0
+	Data 0, 0
+	Data 10, 11
+	Data 16, 5
+	Data 0, 0
+	Data 0, 0
+	Data 1, 9
+	Data 18, 9
+	Data 0, 0
+	Data 10, 9
+	Data 11, 4
+
+'' Level 3 includes
+
+tileData_setfg_3:
+	DataFile l3setfg.BIN, BIN
+
+tileData_setbg_3:
+	DataFile l3setbg.BIN, BIN
+
+tileData_spriteset_3:
+	DataFile l3spriteset.BIN, BIN
+
+palletteData_setfg_3:
+	DataInt	$0000,$0822,$0422,$0A66,$0844,$0622,$0402,$0224
+	DataInt	$00A8,$02EA,$04EE,$0AAA,$0888,$024A,$0248,$0046
+
+palletteData_setfg_3_bw:
+	DataInt $0000,$0222,$0222,$0666,$0444,$0222,$0000,$0222
+	DataInt $0666,$0AAA,$0AAA,$0AAA,$0888,$0444,$0444,$0222
+
+palletteData_setbg_3:
+	DataInt	$0000,$0402,$0602,$0622,$0666,$0444,$0222,$0000
+	DataInt	$0000,$0000,$0000,$0000,$0000,$0000,$0000,$0000
+
+palletteData_setbg_3_bw:
+	DataInt $0000,$0000,$0222,$0222,$0666,$0444,$0222,$0000
+	DataInt $0000,$0000,$0000,$0000,$0000,$0000,$0000,$0000
+
+palletteData_spriteset_3:
+	DataInt	$0000,$0222,$0280,$02A4,$02AA,$0626,$086A,$0462
+	DataInt	$062E,$08CE,$068E,$0CCA,$04AE,$0C86,$08AE,$046E
+
+palletteData_spriteset_3_bw:
+	DataInt $0000,$0222,$0444,$0666,$0888,$0444,$0666,$0444
+	DataInt $0666,$0AAA,$0888,$0AAA,$0888,$0888,$0AAA,$0666
+
+map_layer_0_3:
+	DataFile l3map.0.BIN, BIN
+
+map_layer_1_3:
+	DataFile l3map.1.BIN, BIN
+
+behaviours_Data_3:
+	DataInt 0, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 4, 4
+	DataInt 4, 0, 0, 0, 0, 3, 3, 3, 3, 0, 0, 0, 2, 1, 4, 0
+	DataInt 4, 4, 1, 4, 8, 8, 0, 0, 4, 8, 8, 0, 0, 7, 7, 7
+
+map_extra_3:
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 2, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 2, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 6, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 2, 3, 3, 2, 15, 3, 2, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 15, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+enemy_Data_3:
+	Data 1, 10, 6, 17, 6, 1, 4, 2, 5, 5, 11, 1, 6, 7, 9, 6, 9, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 1, 5, 15, 5, 2, 1, 8, 11, 4, 11, 1, 3, 12, 10, 15, 10, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 1, 6, 10, 6, 2, 3, 11, 11, 8, 11, 1, 5, 13, 6, 13, 5, 0, 5, 15, 8, 15, 7, 0
+	Data 6, 12, 3, 12, 2, 0, 6, 18, 7, 18, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 2, 10, 8, 5, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 3, 15, 4, 10, 4, 1, 4, 10, 8, 17, 6, 1, 1, 2, 11, 5, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 17, 7, 9, 7, 1, 4, 2, 3, 2, 10, 1, 4, 3, 7, 3, 12, 1, 0, 0, 0, 0, 0, 0
+	Data 3, 5, 9, 8, 9, 1, 3, 14, 10, 9, 10, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 3, 10, 11, 5, 11, 1, 3, 16, 10, 11, 10, 1, 6, 7, 4, 7, 5, 0, 0, 0, 0, 0, 0, 0
+	Data 5, 4, 7, 4, 8, 0, 4, 8, 2, 8, 5, 1, 4, 11, 1, 11, 7, 1, 0, 0, 0, 0, 0, 0
+	Data 3, 3, 5, 8, 5, 1, 4, 8, 7, 9, 10, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 8, 1, 10, 17, 10, 1, 3, 18, 8, 13, 8, 1, 1, 13, 5, 17, 5, 1, 2, 13, 2, 7, 2, 1
+	Data 4, 8, 8, 17, 8, 1, 4, 18, 4, 9, 4, 1, 4, 3, 3, 3, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 8, 4, 6, 4, 11, 1, 1, 7, 5, 16, 5, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 8, 11, 4, 11, 10, 1, 4, 6, 6, 11, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 3, 17, 8, 11, 8, 1, 4, 7, 2, 7, 9, 1, 4, 9, 3, 9, 10, 1, 0, 0, 0, 0, 0, 0
+	Data 8, 8, 11, 8, 6, 1, 1, 9, 5, 6, 5, 1, 2, 2, 10, 9, 10, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 16, 10, 4, 9, 1, 3, 3, 4, 13, 4, 1, 3, 8, 2, 5, 2, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 18, 8, 9, 8, 1, 4, 8, 3, 11, 5, 1, 4, 2, 2, 2, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 13, 4, 13, 11, 1, 4, 8, 1, 8, 9, 1, 4, 6, 1, 6, 7, 1, 4, 4, 0, 4, 5, 1
+	Data 4, 13, 2, 13, 8, 1, 4, 7, 2, 7, 9, 1, 4, 1, 2, 1, 8, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 15, 10, 6, 10, 1, 5, 10, 7, 10, 6, 1, 5, 13, 8, 13, 7, 0, 5, 7, 8, 7, 7, 0
+	Data 3, 9, 5, 4, 5, 1, 1, 2, 8, 12, 8, 2, 4, 13, 11, 3, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 8, 18, 8, 9, 8, 1, 4, 7, 5, 16, 7, 1, 3, 2, 5, 4, 5, 1, 3, 5, 6, 6, 6, 1
+	Data 8, 15, 5, 15, 11, 1, 1, 5, 10, 7, 10, 1, 3, 8, 11, 10, 11, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 7, 11, 1, 11, 2, 2, 12, 10, 13, 10, 1, 3, 12, 3, 8, 3, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 15, 3, 11, 3, 1, 3, 6, 3, 7, 3, 1, 2, 11, 9, 14, 9, 1, 0, 0, 0, 0, 0, 0
+	Data 1, 3, 11, 11, 11, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 3, 13, 8, 7, 8, 1, 3, 14, 3, 11, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 8, 1, 4, 16, 4, 1, 4, 15, 7, 10, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 18, 6, 11, 6, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 2, 17, 11, 6, 11, 1, 1, 13, 4, 17, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 9, 5, 2, 5, 1, 6, 12, 5, 12, 6, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	Data 4, 18, 8, 11, 8, 1, 3, 7, 8, 1, 8, 1, 5, 9, 7, 10, 6, 1, 0, 0, 0, 0, 0, 0
+	Data 8, 8, 8, 17, 8, 1, 4, 17, 4, 8, 7, 1, 1, 9, 3, 6, 3, 1, 0, 0, 0, 0, 0, 0
+	Data 4, 7, 6, 7, 11, 2, 4, 8, 5, 8, 11, 2, 4, 9, 11, 9, 8, 1, 0, 0, 0, 0, 0, 0
+' total: 90
+
+resonator_Data_3:
+	Data 8, 7
+	Data 0, 0
+	Data 6, 10
+	Data 0, 0
+	Data 0, 0
+	Data 12, 4
+	Data 18, 11
+	Data 0, 0
+	Data 6, 11
+	Data 0, 0
+	Data 6, 5
+	Data 15, 8
+	Data 4, 8
+	Data 8, 5
+	Data 0, 0
+	Data 3, 9
+	Data 2, 3
+	Data 0, 0
+	Data 9, 10
+	Data 0, 0
+	Data 0, 0
+	Data 11, 10
+	Data 5, 11
+	Data 17, 4
+	Data 6, 10
+	Data 0, 0
+	Data 9, 8
+	Data 0, 0
+	Data 0, 0
+	Data 9, 6
+	Data 0, 0
+	Data 15, 4
+	Data 0, 0
+	Data 0, 0
+	Data 7, 6
+	Data 13, 5
+
+'' Level 4 includes
+
+tileData_setfg_4:
+	DataFile l4setfg.BIN, BIN
+
+tileData_setbg_4:
+	DataFile l4setbg.BIN, BIN
+
+tileData_spriteset_4:
+	DataFile l1spriteset.BIN, BIN
+
+palletteData_setfg_4:
+	DataInt	$0000,$0222,$0648,$0866,$0204,$0426,$0444,$0424,$0644,$0622,$0A68,$0CAA,$0486,$0264,$0400,$0666
+
+palletteData_setfg_4_bw:
+	DataInt $0000,$0222,$0444,$0666,$0000,$0222,$0444,$0222,$0000,$0222,$0444,$0666,$0000,$0222,$0444,$0222
+
+palletteData_setbg_4:
+	DataInt	$0204,$0204,$020A,$0206,$0404,$0024,$0022,$0026,$0000,$0000,$0000,$0000,$0000,$0000,$0000,$0000
+
+palletteData_setbg_4_bw:
+	DataInt $0000,$0000,$0222,$0222,$0222,$0222,$0000,$0222,$0000,$0000,$0000,$0000,$0000,$0000,$0000,$0000
+
+palletteData_spriteset_4:
+	DataInt	$0000,$0222,$0280,$02A4,$02CA,$020C,$004E,$046E
+	DataInt	$068E,$08CE,$00AE,$0CCA,$0EEE,$0A64,$08AE,$0000
+		
+palletteData_spriteset_4_bw:
+	DataInt $0000,$0222,$0444,$0666,$0888,$0222,$0444,$0666
+	DataInt $0888,$0AAA,$0888,$0AAA,$0EEE,$0666,$0AAA,$0000
+
+map_layer_0_4:
+	DataFile l4map.0.BIN, BIN
+
+map_layer_1_4:
+	DataFile l4map.1.BIN, BIN
+
+behaviours_Data_4:
+	DataInt 0, 0, 0, 8, 0, 0, 8, 8, 8, 8, 0, 8, 0, 0, 0, 4
+	DataInt 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 8, 8, 8, 8, 8
+	DataInt 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 1, 0, 8, 8
+
+map_extra_4:
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 2, 8, 5, 3, 5, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 1, 3, 3, 5, 7, 3, 2, 9, 3, 10, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 2, 14, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 6, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+enemy_Data_4:
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 3, 4, 2, 10, 2, 1, 2, 11, 2, 16, 2, 2, 5, 2, 8, 2, 7, 0, 0, 19, 0, 19, 0, 0
+	Data 1, 14, 5, 10, 5, 2, 2, 2, 11, 14, 11, 1, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 4, 10, 4, 7, 10, 2, 6, 16, 3, 16, 4, 0, 6, 3, 9, 3, 8, 0, 0, 19, 0, 19, 0, 0
+	Data 8, 11, 7, 4, 7, 1, 8, 2, 6, 2, 11, 1, 1, 4, 11, 13, 11, 2, 3, 10, 3, 5, 3, 1
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 6, 14, 4, 14, 5, 0, 4, 6, 7, 6, 2, 1, 1, 12, 11, 18, 11, 2, 4, 2, 3, 16, 3, 2
+	Data 4, 7, 6, 7, 9, 1, 2, 10, 6, 8, 6, 1, 8, 2, 4, 9, 4, 1, 8, 17, 3, 17, 10, 2
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 1, 9, 5, 16, 5, 1, 1, 9, 11, 17, 11, 2, 4, 6, 1, 6, 11, 2, 0, 19, 0, 19, 0, 0
+	Data 4, 13, 2, 13, 10, 2, 5, 9, 4, 9, 3, 0, 5, 6, 7, 5, 6, 0, 8, 16, 3, 13, 3, 1
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 4, 10, 2, 10, 6, 2, 4, 9, 1, 9, 5, 1, 4, 3, 8, 1, 11, 2, 8, 16, 3, 17, 3, 1
+	Data 8, 3, 11, 3, 7, 1, 6, 12, 8, 12, 7, 1, 6, 8, 6, 8, 5, 1, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 4, 3, 2, 2, 9, 1, 2, 4, 11, 8, 11, 1, 1, 10, 11, 17, 11, 1, 8, 13, 5, 13, 2, 1
+	Data 1, 15, 5, 8, 5, 2, 4, 16, 2, 16, 11, 2, 3, 3, 11, 12, 11, 1, 0, 19, 0, 19, 0, 0
+' total: 33
+
+resonator_Data_4:
+	Data 19, 0
+	Data 19, 0
+	Data 19, 0
+	Data 19, 0
+	Data 4, 5
+	Data 18, 7
+	Data 19, 0
+	Data 19, 0
+	Data 19, 0
+	Data 19, 0
+	Data 5, 3
+	Data 3, 3
+	Data 19, 0
+	Data 19, 0
+	Data 19, 0
+	Data 19, 0
+	Data 5, 4
+	Data 9, 9
+	Data 19, 0
+	Data 19, 0
+	Data 19, 0
+	Data 19, 0
+	Data 4, 3
+	Data 14, 7
+	Data 19, 0
+	Data 19, 0
+	Data 19, 0
+	Data 19, 0
+	Data 4, 6
+	Data 14, 9
+	Data 19, 0
+	Data 19, 0
+	Data 19, 0
+	Data 19, 0
+	Data 14, 5
+	Data 18, 7
+
+'' Level 5 includes
+
+tileData_setfg_5:
+	DataFile l5setfg.BIN, BIN
+
+tileData_setbg_5:
+	DataFile l5setbg.BIN, BIN
+
+tileData_spriteset_5:
+	DataFile l2spriteset.BIN, BIN
+
+palletteData_setfg_5:
+	DataInt	$0000,$0CCC,$0AAA,$0444,$0666,$0888,$0004,$0428,$0226,$086A,$046A,$0006,$0626,$0248,$0244,$08AA
+
+palletteData_setfg_5_bw:
+	DataInt $0000,$0CCC,$0AAA,$0444,$0666,$0888,$0000,$0444,$0222,$0666,$0666,$0000,$0444,$0444,$0222,$0888
+
+palletteData_setbg_5:
+	DataInt	$0000,$0006,$0004,$0002,$0204,$0206,$0226,$0000,$0000,$0000,$0000,$0000,$0000,$0000,$0000,$0000
+
+palletteData_setbg_5_bw:
+	DataInt $0000,$0000,$0000,$0000,$0000,$0222,$0222,$0000,$0000,$0000,$0000,$0000,$0000,$0000,$0000,$0000
+
+palletteData_spriteset_5:
+	DataInt $0000,$0222,$0280,$02A4,$00AA,$0826,$084A,$0800
+	DataInt $0A62,$0A64,$0CCA,$0EEE,$08AE,$068E,$046E,$08CE
+
+palletteData_spriteset_5_bw:
+	DataInt $0000,$0222,$0444,$0666,$0666,$0444,$0666,$0222
+	DataInt $0666,$0666,$0AAA,$0EEE,$0AAA,$0888,$0666,$0AAA
+
+map_layer_0_5:
+	DataFile l5map.0.BIN, BIN
+
+map_layer_1_5:
+	DataFile l5map.1.BIN, BIN
+
+behaviours_Data_5:
+	DataInt 0, 4, 4, 4, 4, 0, 0, 0, 8, 8, 8, 8, 8, 8, 4, 4
+	DataInt 8, 8, 8, 8, 5, 6, 1, 1, 2, 2, 8, 8, 8, 4, 0, 0
+	DataInt 8, 8, 8, 8, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 0, 0
+
+map_extra_5:
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 13, 3, 3, 13, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 4, 3, 3, 3, 7, 3, 3, 8, 2, 5, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 2, 10, 3, 2, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 3, 5, 3, 3, 6, 3, 3, 7, 3, 3, 8, 3, 3, 9, 3, 3, 10, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 2, 13, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 5, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 3, 5, 4, 3, 2, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 2, 15, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 18, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    Data 1, 1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+enemy_Data_5:
+	Data 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 6, 11, 4, 11, 3, 1, 4, 17, 3, 17, 11, 1, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 2, 7, 2, 18, 2, 1, 1, 13, 5, 1, 5, 2, 3, 9, 8, 18, 8, 1, 0, 19, 0, 19, 0, 0
+	Data 4, 6, 1, 6, 6, 1, 4, 2, 1, 2, 4, 1, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 4, 2, 1, 2, 7, 2, 8, 12, 7, 12, 1, 1, 8, 17, 2, 17, 7, 1, 3, 1, 11, 10, 11, 1
+	Data 6, 16, 4, 17, 5, 1, 6, 6, 5, 6, 6, 1, 6, 10, 9, 10, 10, 1, 1, 11, 11, 15, 11, 1
+	Data 6, 17, 2, 17, 3, 1, 2, 9, 5, 3, 5, 1, 4, 4, 11, 11, 11, 1, 8, 2, 6, 2, 11, 1
+	Data 1, 7, 4, 15, 4, 1, 8, 2, 5, 2, 11, 1, 4, 6, 11, 15, 11, 2, 0, 19, 0, 19, 0, 0
+	Data 4, 15, 4, 11, 4, 1, 1, 5, 4, 13, 4, 2, 5, 17, 5, 17, 4, 1, 0, 19, 0, 19, 0, 0
+	Data 4, 1, 2, 1, 8, 1, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 1, 1, 11, 7, 11, 1, 2, 12, 11, 17, 11, 1, 3, 7, 8, 1, 8, 1, 4, 11, 4, 17, 4, 1
+	Data 6, 16, 7, 16, 8, 1, 6, 9, 10, 9, 9, 1, 4, 13, 1, 3, 5, 1, 0, 19, 0, 19, 0, 0
+	Data 4, 7, 3, 15, 3, 1, 2, 6, 11, 10, 11, 1, 5, 3, 3, 3, 4, 1, 8, 6, 4, 6, 10, 1
+	Data 1, 17, 6, 4, 6, 2, 2, 5, 6, 16, 6, 1, 3, 16, 11, 4, 11, 1, 0, 19, 0, 19, 0, 0
+	Data 8, 17, 5, 17, 11, 1, 6, 14, 3, 14, 4, 1, 6, 3, 3, 3, 4, 1, 4, 17, 4, 17, 10, 1
+	Data 8, 1, 11, 18, 11, 1, 4, 2, 5, 9, 5, 1, 3, 13, 5, 8, 5, 1, 1, 11, 5, 17, 5, 1
+	Data 8, 15, 4, 15, 10, 1, 6, 12, 8, 13, 8, 1, 4, 3, 5, 3, 11, 2, 0, 19, 0, 19, 0, 0
+	Data 8, 10, 4, 10, 10, 1, 4, 9, 3, 2, 7, 1, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 6, 15, 3, 15, 4, 1, 6, 9, 3, 9, 4, 1, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 6, 11, 6, 11, 7, 1, 6, 2, 4, 3, 4, 1, 1, 4, 5, 9, 5, 1, 0, 19, 0, 19, 0, 0
+	Data 1, 11, 7, 16, 7, 1, 2, 11, 4, 7, 4, 1, 4, 4, 2, 4, 6, 2, 0, 19, 0, 19, 0, 0
+	Data 1, 1, 4, 8, 4, 1, 3, 1, 8, 10, 8, 1, 2, 18, 4, 14, 4, 1, 0, 19, 0, 19, 0, 0
+	Data 8, 18, 7, 10, 7, 1, 8, 3, 7, 9, 7, 1, 4, 15, 3, 3, 6, 1, 4, 1, 1, 1, 6, 1
+	Data 4, 10, 2, 10, 11, 1, 4, 6, 2, 6, 11, 1, 2, 16, 8, 18, 8, 1, 0, 19, 0, 19, 0, 0
+	Data 1, 13, 5, 8, 5, 2, 1, 8, 11, 14, 11, 1, 1, 9, 8, 6, 8, 1, 0, 19, 0, 19, 0, 0
+	Data 4, 14, 7, 14, 11, 1, 4, 4, 11, 4, 8, 1, 4, 11, 1, 11, 5, 1, 0, 19, 0, 19, 0, 0
+	Data 4, 8, 7, 1, 11, 1, 4, 1, 1, 8, 5, 1, 2, 12, 11, 15, 11, 1, 0, 19, 0, 19, 0, 0
+	Data 1, 3, 11, 14, 11, 2, 6, 5, 8, 6, 8, 1, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 2, 17, 5, 10, 5, 1, 2, 2, 5, 7, 5, 1, 3, 13, 5, 4, 5, 2, 0, 19, 0, 19, 0, 0
+	Data 1, 1, 8, 9, 8, 1, 2, 12, 5, 2, 5, 2, 4, 18, 4, 14, 11, 1, 0, 19, 0, 19, 0, 0
+	Data 4, 6, 2, 6, 11, 1, 2, 10, 4, 18, 4, 1, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 1, 17, 4, 1, 4, 1, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 3, 2, 4, 14, 4, 2, 4, 16, 5, 16, 9, 1, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 3, 17, 11, 3, 11, 1, 4, 16, 2, 17, 8, 1, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+	Data 6, 16, 9, 16, 10, 1, 5, 14, 7, 14, 8, 1, 5, 5, 7, 4, 7, 1, 6, 3, 10, 3, 9, 1
+	Data 1, 9, 9, 3, 9, 1, 4, 1, 11, 7, 11, 1, 0, 19, 0, 19, 0, 0, 0, 19, 0, 19, 0, 0
+' total: 90
+
+resonator_Data_5:
+	Data 19, 0
+	Data 2, 8
+	Data 16, 11
+	Data 4, 11
+	Data 8, 5
+	Data 1, 9
+	Data 17, 11
+	Data 17, 9
+	Data 2, 11
+	Data 0, 0
+	Data 4, 11
+	Data 4, 5
+	Data 16, 2
+	Data 0, 0
+	Data 1, 10
+	Data 0, 0
+	Data 7, 6
+	Data 0, 0
+	Data 0, 0
+	Data 16, 3
+	Data 0, 0
+	Data 10, 8
+	Data 1, 9
+	Data 8, 3
+	Data 0, 0
+	Data 3, 5
+	Data 9, 11
+	Data 0, 0
+	Data 0, 0
+	Data 11, 11
+	Data 8, 4
+	Data 9, 9
+	Data 0, 0
+	Data 1, 9
+	Data 18, 9
+	Data 0, 0
+	
+'' Cutscene data. The texts...
+'' Engine shows 6, stops, etc...
+
+CutsTxt1:
+    ' REMEMBER CHERIL WAS NO LONGER HAPPY
+    Data $52, $45, $4D, $45, $4D, $42, $45, $52, $20, $43, $48, $45, $52, $49, $4C, $20, $57, $41, $53, $20, $4E, $4F, $20, $4C, $4F, $4E, $47, $45, $52, $20, $48, $41, $50, $50, $59, 0
+    ' IN YE OLDE FOREST FAR AWAY,
+    Data $49, $4E, $20, $59, $45, $20, $4F, $4C, $44, $45, $20, $46, $4F, $52, $45, $53, $54, $20, $46, $41, $52, $20, $41, $57, $41, $59, $2C, 0
+    ' SO SHE PACKED UP HER THINGS AND PARTED
+    Data $53, $4F, $20, $53, $48, $45, $20, $50, $41, $43, $4B, $45, $44, $20, $55, $50, $20, $48, $45, $52, $20, $54, $48, $49, $4E, $47, $53, $20, $41, $4E, $44, $20, $50, $41, $52, $54, $45, $44, 0
+    ' TO THE BIG CITY IN DISARRAY.
+    Data $54, $4F, $20, $54, $48, $45, $20, $42, $49, $47, $20, $43, $49, $54, $59, $20, $49, $4E, $20, $44, $49, $53, $41, $52, $52, $41, $59, $2E, 0
+    ' AND THIS IS WHAT HAPPENED
+    Data $41, $4E, $44, $20, $54, $48, $49, $53, $20, $49, $53, $20, $57, $48, $41, $54, $20, $48, $41, $50, $50, $45, $4E, $45, $44, 0
+    ' JUST A WEEK AGO . . .
+    Data $4A, $55, $53, $54, $20, $41, $20, $57, $45, $45, $4B, $20, $41, $47, $4F, $20, $2E, $20, $2E, $20, $2E, 0
+    ' NOW CHERIL IS APPROACHING HER GOAL
+    Data $4E, $4F, $57, $20, $43, $48, $45, $52, $49, $4C, $20, $49, $53, $20, $41, $50, $50, $52, $4F, $41, $43, $48, $49, $4E, $47, $20, $48, $45, $52, $20, $47, $4F, $41, $4C, 0
+    ' BIG BUILDINGS ATOP THE HORIZON!
+    Data $42, $49, $47, $20, $42, $55, $49, $4C, $44, $49, $4E, $47, $53, $20, $41, $54, $4F, $50, $20, $54, $48, $45, $20, $48, $4F, $52, $49, $5A, $4F, $4E, $21, 0
+    ' SHE SETS UP FOR A BETTER LIFE
+    Data $53, $48, $45, $20, $53, $45, $54, $53, $20, $55, $50, $20, $46, $4F, $52, $20, $41, $20, $42, $45, $54, $54, $45, $52, $20, $4C, $49, $46, $45, 0
+    ' AWAY FROM MONKEYS AND 'SHROOMS.
+    Data $41, $57, $41, $59, $20, $46, $52, $4F, $4D, $20, $4D, $4F, $4E, $4B, $45, $59, $53, $20, $41, $4E, $44, $20, $27, $53, $48, $52, $4F, $4F, $4D, $53, $2E, 0
+    ' BUT SHE CAN'T IMAGINE THE UGLY
+    Data $42, $55, $54, $20, $53, $48, $45, $20, $43, $41, $4E, $27, $54, $20, $49, $4D, $41, $47, $49, $4E, $45, $20, $54, $48, $45, $20, $55, $47, $4C, $59, 0
+    ' SURPRISE AWAITING . . .
+    Data $53, $55, $52, $50, $52, $49, $53, $45, $20, $41, $57, $41, $49, $54, $49, $4E, $47, $20, $2E, $20, $2E, $20, $2E, 0
+    ' FOR EVERY STREET IS EMPTY,
+    Data $46, $4F, $52, $20, $45, $56, $45, $52, $59, $20, $53, $54, $52, $45, $45, $54, $20, $49, $53, $20, $45, $4D, $50, $54, $59, $2C, 0
+    ' LONG SHADOWS AHOY!, SHE LAUGHS.
+    Data $4C, $4F, $4E, $47, $20, $53, $48, $41, $44, $4F, $57, $53, $20, $41, $48, $4F, $59, $21, $2C, $20, $53, $48, $45, $20, $4C, $41, $55, $47, $48, $53, $2E, 0
+    ' NO SOUND OF HUMAN ACTIVITY,
+    Data $4E, $4F, $20, $53, $4F, $55, $4E, $44, $20, $4F, $46, $20, $48, $55, $4D, $41, $4E, $20, $41, $43, $54, $49, $56, $49, $54, $59, $2C, 0
+    ' JUST A DEEP, DARK, EVIL GROWL . . .
+    Data $4A, $55, $53, $54, $20, $41, $20, $44, $45, $45, $50, $2C, $20, $44, $41, $52, $4B, $2C, $20, $45, $56, $49, $4C, $20, $47, $52, $4F, $57, $4C, $20, $2E, $20, $2E, $20, $2E, 0
+    ' SHE GOES UNNOTICED NO MORE!
+    Data $53, $48, $45, $20, $47, $4F, $45, $53, $20, $55, $4E, $4E, $4F, $54, $49, $43, $45, $44, $20, $4E, $4F, $20, $4D, $4F, $52, $45, $21, 0
+    ' A HUNDRED EYES TURNING TO HER . . .
+    Data $41, $20, $48, $55, $4E, $44, $52, $45, $44, $20, $45, $59, $45, $53, $20, $54, $55, $52, $4E, $49, $4E, $47, $20, $54, $4F, $20, $48, $45, $52, $20, $2E, $20, $2E, $20, $2E, 0
+    Data 0
+CutsTxt2:
+    ' 'WHAT THE HELL IS THAT?'
+    Data $27, $57, $48, $41, $54, $20, $54, $48, $45, $20, $48, $45, $4C, $4C, $20, $49, $53, $20, $54, $48, $41, $54, $3F, $27, 0
+    ' CHERIL WONDERS LOUDLY (FOR GRANTED)
+    Data $43, $48, $45, $52, $49, $4C, $20, $57, $4F, $4E, $44, $45, $52, $53, $20, $4C, $4F, $55, $44, $4C, $59, $20, $28, $46, $4F, $52, $20, $47, $52, $41, $4E, $54, $45, $44, $29, 0
+    ' 'OH, DIDN'T I MENTION IT?'
+    Data $27, $4F, $48, $2C, $20, $44, $49, $44, $4E, $27, $54, $20, $49, $20, $4D, $45, $4E, $54, $49, $4F, $4E, $20, $49, $54, $3F, $27, 0
+    ' - TWAS THE MAYOR SPEAKING.
+    Data $2D, $20, $54, $57, $41, $53, $20, $54, $48, $45, $20, $4D, $41, $59, $4F, $52, $20, $53, $50, $45, $41, $4B, $49, $4E, $47, $2E, 0
+    ' 'OUR CITY IS DOOMED, CITIZENS HATH
+    Data $27, $4F, $55, $52, $20, $43, $49, $54, $59, $20, $49, $53, $20, $44, $4F, $4F, $4D, $45, $44, $2C, $20, $43, $49, $54, $49, $5A, $45, $4E, $53, $20, $48, $41, $54, $48, 0
+    ' TURNED INTO MONSTERS!!'
+    Data $54, $55, $52, $4E, $45, $44, $20, $49, $4E, $54, $4F, $20, $4D, $4F, $4E, $53, $54, $45, $52, $53, $21, $21, $27, 0
+    ' 'WHAT KIND OF SORCERY IS THIS?
+    Data $27, $57, $48, $41, $54, $20, $4B, $49, $4E, $44, $20, $4F, $46, $20, $53, $4F, $52, $43, $45, $52, $59, $20, $49, $53, $20, $54, $48, $49, $53, $3F, 0
+    ' I'M OUT OF HERE. BYE BYE, EV'RYONE!'
+    Data $49, $27, $4D, $20, $4F, $55, $54, $20, $4F, $46, $20, $48, $45, $52, $45, $2E, $20, $42, $59, $45, $20, $42, $59, $45, $2C, $20, $45, $56, $27, $52, $59, $4F, $4E, $45, $21, $27, 0
+    ' - SAID CHERIL
+    Data $2D, $20, $53, $41, $49, $44, $20, $43, $48, $45, $52, $49, $4C, 0
+    ' 'BUT YOU CAN'T - A SEAL HAS BEEN SET.
+    Data $27, $42, $55, $54, $20, $59, $4F, $55, $20, $43, $41, $4E, $27, $54, $20, $2D, $20, $41, $20, $53, $45, $41, $4C, $20, $48, $41, $53, $20, $42, $45, $45, $4E, $20, $53, $45, $54, $2E, 0
+    ' YOU WON'T BE ABLE TO GO UNTIL YOU
+    Data $59, $4F, $55, $20, $57, $4F, $4E, $27, $54, $20, $42, $45, $20, $41, $42, $4C, $45, $20, $54, $4F, $20, $47, $4F, $20, $55, $4E, $54, $49, $4C, $20, $59, $4F, $55, 0
+    ' DISPOSE OF EVERY UGLY BEING 'ERE'
+    Data $44, $49, $53, $50, $4F, $53, $45, $20, $4F, $46, $20, $45, $56, $45, $52, $59, $20, $55, $47, $4C, $59, $20, $42, $45, $49, $4E, $47, $20, $27, $45, $52, $45, $27, 0
+    ' 'THEY ARE UNTOUCHABLE BUT VIBRATIONS
+    Data $27, $54, $48, $45, $59, $20, $41, $52, $45, $20, $55, $4E, $54, $4F, $55, $43, $48, $41, $42, $4C, $45, $20, $42, $55, $54, $20, $56, $49, $42, $52, $41, $54, $49, $4F, $4E, $53, 0
+    ' MAKE THEM STOP...
+    Data $4D, $41, $4B, $45, $20, $54, $48, $45, $4D, $20, $53, $54, $4F, $50, $2E, $2E, $2E, 0
+    ' THOSE ODD CONTRAPTIONS WILL PAUSE
+    Data $54, $48, $4F, $53, $45, $20, $4F, $44, $44, $20, $43, $4F, $4E, $54, $52, $41, $50, $54, $49, $4F, $4E, $53, $20, $57, $49, $4C, $4C, $20, $50, $41, $55, $53, $45, 0
+    ' THEM FOR A WHILE!
+    Data $54, $48, $45, $4D, $20, $46, $4F, $52, $20, $41, $20, $57, $48, $49, $4C, $45, $21, 0
+    ' USE THEM WISELY AND JUMP OVER THEIR
+    Data $55, $53, $45, $20, $54, $48, $45, $4D, $20, $57, $49, $53, $45, $4C, $59, $20, $41, $4E, $44, $20, $4A, $55, $4D, $50, $20, $4F, $56, $45, $52, $20, $54, $48, $45, $49, $52, 0
+    ' HEADS!' - SAID THE MAYOR
+    Data $48, $45, $41, $44, $53, $21, $27, $20, $2D, $20, $53, $41, $49, $44, $20, $54, $48, $45, $20, $4D, $41, $59, $4F, $52, 0
+    Data 0
+CutsTxt3:
+    ' 'NOW THE STREETS ARE CLEAN'
+    Data $27, $4E, $4F, $57, $20, $54, $48, $45, $20, $53, $54, $52, $45, $45, $54, $53, $20, $41, $52, $45, $20, $43, $4C, $45, $41, $4E, $27, 0
+    ' - YELLED CHERIL.
+    Data $2D, $20, $59, $45, $4C, $4C, $45, $44, $20, $43, $48, $45, $52, $49, $4C, $2E, 0
+    ' 'HATH I SEEN THAT, MA'AM'
+    Data $27, $48, $41, $54, $48, $20, $49, $20, $53, $45, $45, $4E, $20, $54, $48, $41, $54, $2C, $20, $4D, $41, $27, $41, $4D, $27, 0
+    ' - SAID THE MAYOR
+    Data $2D, $20, $53, $41, $49, $44, $20, $54, $48, $45, $20, $4D, $41, $59, $4F, $52, 0
+    ' 'BUT YOUR JOB HERE IS NOT YET OVER,
+    Data $27, $42, $55, $54, $20, $59, $4F, $55, $52, $20, $4A, $4F, $42, $20, $48, $45, $52, $45, $20, $49, $53, $20, $4E, $4F, $54, $20, $59, $45, $54, $20, $4F, $56, $45, $52, $2C, 0
+    ' HEAD TO THE OL' FACTORY, LADY!'
+    Data $48, $45, $41, $44, $20, $54, $4F, $20, $54, $48, $45, $20, $4F, $4C, $27, $20, $46, $41, $43, $54, $4F, $52, $59, $2C, $20, $4C, $41, $44, $59, $21, $27, 0
+    ' 'WHADDAYA MEAN, UGLY OLD MAN?'
+    Data $27, $57, $48, $41, $44, $44, $41, $59, $41, $20, $4D, $45, $41, $4E, $2C, $20, $55, $47, $4C, $59, $20, $4F, $4C, $44, $20, $4D, $41, $4E, $3F, $27, 0
+    ' - PROTESTED CHERIL
+    Data $2D, $20, $50, $52, $4F, $54, $45, $53, $54, $45, $44, $20, $43, $48, $45, $52, $49, $4C, 0
+    ' 'THERE'RE MORE MONSTERS IN THERE.
+    Data $27, $54, $48, $45, $52, $45, $27, $52, $45, $20, $4D, $4F, $52, $45, $20, $4D, $4F, $4E, $53, $54, $45, $52, $53, $20, $49, $4E, $20, $54, $48, $45, $52, $45, $2E, 0
+    ' I'LL SAVE A MILLION IN WAGES,
+    Data $49, $27, $4C, $4C, $20, $53, $41, $56, $45, $20, $41, $20, $4D, $49, $4C, $4C, $49, $4F, $4E, $20, $49, $4E, $20, $57, $41, $47, $45, $53, $2C, 0
+    ' BUT SOME CLEANUP IS DUE.'
+    Data $42, $55, $54, $20, $53, $4F, $4D, $45, $20, $43, $4C, $45, $41, $4E, $55, $50, $20, $49, $53, $20, $44, $55, $45, $2E, $27, 0
+    ' - EXPLAINED THE MAYOR.
+    Data $2D, $20, $45, $58, $50, $4C, $41, $49, $4E, $45, $44, $20, $54, $48, $45, $20, $4D, $41, $59, $4F, $52, $2E, 0
+    ' 'I SHALL KILL YOU WITH MY BARE
+    Data $27, $49, $20, $53, $48, $41, $4C, $4C, $20, $4B, $49, $4C, $4C, $20, $59, $4F, $55, $20, $57, $49, $54, $48, $20, $4D, $59, $20, $42, $41, $52, $45, 0
+    ' HANDS, THIS I PROMISE!'
+    Data $48, $41, $4E, $44, $53, $2C, $20, $54, $48, $49, $53, $20, $49, $20, $50, $52, $4F, $4D, $49, $53, $45, $21, $27, 0
+    ' - EXPLODED CHERIL
+    Data $2D, $20, $45, $58, $50, $4C, $4F, $44, $45, $44, $20, $43, $48, $45, $52, $49, $4C, 0
+    ' 'CALM DOWN AND WEIGHT YOUR
+    Data $27, $43, $41, $4C, $4D, $20, $44, $4F, $57, $4E, $20, $41, $4E, $44, $20, $57, $45, $49, $47, $48, $54, $20, $59, $4F, $55, $52, 0
+    ' CHANCES - AND DO AS I SAY.'
+    Data $43, $48, $41, $4E, $43, $45, $53, $20, $2D, $20, $41, $4E, $44, $20, $44, $4F, $20, $41, $53, $20, $49, $20, $53, $41, $59, $2E, $27, 0
+    ' - LAUGHED THE MAYOR.
+    Data $2D, $20, $4C, $41, $55, $47, $48, $45, $44, $20, $54, $48, $45, $20, $4D, $41, $59, $4F, $52, $2E, 0
+    Data 0
+CutsTxt4:
+    ' 'AND NOW I'M SO ANGRY I BURN!
+    Data $27, $41, $4E, $44, $20, $4E, $4F, $57, $20, $49, $27, $4D, $20, $53, $4F, $20, $41, $4E, $47, $52, $59, $20, $49, $20, $42, $55, $52, $4E, $21, 0
+    ' LET ME GO AWAY, FILTHY SCUMBAG'
+    Data $4C, $45, $54, $20, $4D, $45, $20, $47, $4F, $20, $41, $57, $41, $59, $2C, $20, $46, $49, $4C, $54, $48, $59, $20, $53, $43, $55, $4D, $42, $41, $47, $27, 0
+    ' - SHOUTED CHERIL
+    Data $2D, $20, $53, $48, $4F, $55, $54, $45, $44, $20, $43, $48, $45, $52, $49, $4C, 0
+    ' 'C'MON, MY LITTLE GIRL,
+    Data $27, $43, $27, $4D, $4F, $4E, $2C, $20, $4D, $59, $20, $4C, $49, $54, $54, $4C, $45, $20, $47, $49, $52, $4C, $2C, 0
+    ' FOR I KNOW YOU ARE HAVING FUN
+    Data $46, $4F, $52, $20, $49, $20, $4B, $4E, $4F, $57, $20, $59, $4F, $55, $20, $41, $52, $45, $20, $48, $41, $56, $49, $4E, $47, $20, $46, $55, $4E, 0
+    ' KICKIN' INCREDIBLE AMOUNTS OF ASS!'
+    Data $4B, $49, $43, $4B, $49, $4E, $27, $20, $49, $4E, $43, $52, $45, $44, $49, $42, $4C, $45, $20, $41, $4D, $4F, $55, $4E, $54, $53, $20, $4F, $46, $20, $41, $53, $53, $21, $27, 0
+    ' 'THAT MAY BE TRUE, BUT DOING THINGS
+    Data $27, $54, $48, $41, $54, $20, $4D, $41, $59, $20, $42, $45, $20, $54, $52, $55, $45, $2C, $20, $42, $55, $54, $20, $44, $4F, $49, $4E, $47, $20, $54, $48, $49, $4E, $47, $53, 0
+    ' I DID NOT CHOOSE I HATE!'
+    Data $49, $20, $44, $49, $44, $20, $4E, $4F, $54, $20, $43, $48, $4F, $4F, $53, $45, $20, $49, $20, $48, $41, $54, $45, $21, $27, 0
+    ' 'BUT YOU ARE ALMOST DONE, MYLADY!
+    Data $27, $42, $55, $54, $20, $59, $4F, $55, $20, $41, $52, $45, $20, $41, $4C, $4D, $4F, $53, $54, $20, $44, $4F, $4E, $45, $2C, $20, $4D, $59, $4C, $41, $44, $59, $21, 0
+    ' SEE THAT DARK CAVE AHEAD? WE MINED
+    Data $53, $45, $45, $20, $54, $48, $41, $54, $20, $44, $41, $52, $4B, $20, $43, $41, $56, $45, $20, $41, $48, $45, $41, $44, $3F, $20, $57, $45, $20, $4D, $49, $4E, $45, $44, 0
+    ' SOME CHEMICALS THERE. MAYBE THAT'S
+    Data $53, $4F, $4D, $45, $20, $43, $48, $45, $4D, $49, $43, $41, $4C, $53, $20, $54, $48, $45, $52, $45, $2E, $20, $4D, $41, $59, $42, $45, $20, $54, $48, $41, $54, $27, $53, 0
+    ' WHY EVERYONE'S BEEN ACTING ODD!'
+    Data $57, $48, $59, $20, $45, $56, $45, $52, $59, $4F, $4E, $45, $27, $53, $20, $42, $45, $45, $4E, $20, $41, $43, $54, $49, $4E, $47, $20, $4F, $44, $44, $21, $27, 0
+    ' 'OKAY, OKAY, MY MAYOR,
+    Data $27, $4F, $4B, $41, $59, $2C, $20, $4F, $4B, $41, $59, $2C, $20, $4D, $59, $20, $4D, $41, $59, $4F, $52, $2C, 0
+    ' I'LL CLEAN THAT CAVE FOR YOU AS WELL,
+    Data $49, $27, $4C, $4C, $20, $43, $4C, $45, $41, $4E, $20, $54, $48, $41, $54, $20, $43, $41, $56, $45, $20, $46, $4F, $52, $20, $59, $4F, $55, $20, $41, $53, $20, $57, $45, $4C, $4C, $2C, 0
+    ' ONLY IF YOU PROMISE ME THIS IS THE
+    Data $4F, $4E, $4C, $59, $20, $49, $46, $20, $59, $4F, $55, $20, $50, $52, $4F, $4D, $49, $53, $45, $20, $4D, $45, $20, $54, $48, $49, $53, $20, $49, $53, $20, $54, $48, $45, 0
+    ' LAST JOB I HAVE TO DO!'
+    Data $4C, $41, $53, $54, $20, $4A, $4F, $42, $20, $49, $20, $48, $41, $56, $45, $20, $54, $4F, $20, $44, $4F, $21, $27, 0
+    ' 'SURE THING - CLEAN MY CAVE,
+    Data $27, $53, $55, $52, $45, $20, $54, $48, $49, $4E, $47, $20, $2D, $20, $43, $4C, $45, $41, $4E, $20, $4D, $59, $20, $43, $41, $56, $45, $2C, 0
+    ' THEN YOU MAY LEAVE'.
+    Data $54, $48, $45, $4E, $20, $59, $4F, $55, $20, $4D, $41, $59, $20, $4C, $45, $41, $56, $45, $27, $2E, 0
+    Data 0
+CutsTxt5:
+    ' BUT AS CHERIL WENT OUT OF THE CAVE
+    Data $42, $55, $54, $20, $41, $53, $20, $43, $48, $45, $52, $49, $4C, $20, $57, $45, $4E, $54, $20, $4F, $55, $54, $20, $4F, $46, $20, $54, $48, $45, $20, $43, $41, $56, $45, 0
+    ' ALL BADIES FALLEN, EVERYTHING DONE,
+    Data $41, $4C, $4C, $20, $42, $41, $44, $49, $45, $53, $20, $46, $41, $4C, $4C, $45, $4E, $2C, $20, $45, $56, $45, $52, $59, $54, $48, $49, $4E, $47, $20, $44, $4F, $4E, $45, $2C, 0
+    ' A STRANGE FIGURE APPEARED...
+    Data $41, $20, $53, $54, $52, $41, $4E, $47, $45, $20, $46, $49, $47, $55, $52, $45, $20, $41, $50, $50, $45, $41, $52, $45, $44, $2E, $2E, $2E, 0
+    ' 'WHAT'S THIS? I THOUGHT I'D FINISHED
+    Data $27, $57, $48, $41, $54, $27, $53, $20, $54, $48, $49, $53, $3F, $20, $49, $20, $54, $48, $4F, $55, $47, $48, $54, $20, $49, $27, $44, $20, $46, $49, $4E, $49, $53, $48, $45, $44, 0
+    ' EVERYONE ALREADY!' SAID CHERIL
+    Data $45, $56, $45, $52, $59, $4F, $4E, $45, $20, $41, $4C, $52, $45, $41, $44, $59, $21, $27, $20, $53, $41, $49, $44, $20, $43, $48, $45, $52, $49, $4C, 0
+    ' 'SNEE... SNEEE...' SAID THE THING.
+    Data $27, $53, $4E, $45, $45, $2E, $2E, $2E, $20, $53, $4E, $45, $45, $45, $2E, $2E, $2E, $27, $20, $53, $41, $49, $44, $20, $54, $48, $45, $20, $54, $48, $49, $4E, $47, $2E, 0
+    ' 'OH, MY GOD! CAN'T BELIEVE THIS!'
+    Data $27, $4F, $48, $2C, $20, $4D, $59, $20, $47, $4F, $44, $21, $20, $43, $41, $4E, $27, $54, $20, $42, $45, $4C, $49, $45, $56, $45, $20, $54, $48, $49, $53, $21, $27, 0
+    ' SAID THE MAYOR, 'IT'S A CREATURE OF
+    Data $53, $41, $49, $44, $20, $54, $48, $45, $20, $4D, $41, $59, $4F, $52, $2C, $20, $27, $49, $54, $27, $53, $20, $41, $20, $43, $52, $45, $41, $54, $55, $52, $45, $20, $4F, $46, 0
+    ' PURE EVIL ORIGINATED FROM YOUR RAGE!
+    Data $50, $55, $52, $45, $20, $45, $56, $49, $4C, $20, $4F, $52, $49, $47, $49, $4E, $41, $54, $45, $44, $20, $46, $52, $4F, $4D, $20, $59, $4F, $55, $52, $20, $52, $41, $47, $45, $21, 0
+    ' BE CAREFUL! MAY IT SNEEZE AND IT
+    Data $42, $45, $20, $43, $41, $52, $45, $46, $55, $4C, $21, $20, $4D, $41, $59, $20, $49, $54, $20, $53, $4E, $45, $45, $5A, $45, $20, $41, $4E, $44, $20, $49, $54, 0
+    ' WILL THROW YOU TO THE HELLISH
+    Data $57, $49, $4C, $4C, $20, $54, $48, $52, $4F, $57, $20, $59, $4F, $55, $20, $54, $4F, $20, $54, $48, $45, $20, $48, $45, $4C, $4C, $49, $53, $48, 0
+    ' DIMMENSION!' - BUT IT WAS TOO LATE.
+    Data $44, $49, $4D, $4D, $45, $4E, $53, $49, $4F, $4E, $21, $27, $20, $2D, $20, $42, $55, $54, $20, $49, $54, $20, $57, $41, $53, $20, $54, $4F, $4F, $20, $4C, $41, $54, $45, $2E, 0
+    ' THE CREATURE SNEEZED, AND A TIDAL
+    Data $54, $48, $45, $20, $43, $52, $45, $41, $54, $55, $52, $45, $20, $53, $4E, $45, $45, $5A, $45, $44, $2C, $20, $41, $4E, $44, $20, $41, $20, $54, $49, $44, $41, $4C, 0
+    ' WAVE OF PURE EVIL TWISTED REALITY.
+    Data $57, $41, $56, $45, $20, $4F, $46, $20, $50, $55, $52, $45, $20, $45, $56, $49, $4C, $20, $54, $57, $49, $53, $54, $45, $44, $20, $52, $45, $41, $4C, $49, $54, $59, $2E, 0
+    ' 'NOW YOU HAVE TO FIGHT BACK YOUR
+    Data $27, $4E, $4F, $57, $20, $59, $4F, $55, $20, $48, $41, $56, $45, $20, $54, $4F, $20, $46, $49, $47, $48, $54, $20, $42, $41, $43, $4B, $20, $59, $4F, $55, $52, 0
+    ' WAY TO THE REAL WORLD', SAID THE
+    Data $57, $41, $59, $20, $54, $4F, $20, $54, $48, $45, $20, $52, $45, $41, $4C, $20, $57, $4F, $52, $4C, $44, $27, $2C, $20, $53, $41, $49, $44, $20, $54, $48, $45, 0
+    ' MAYOR. BUT HIS VOICE CAME FROM
+    Data $4D, $41, $59, $4F, $52, $2E, $20, $42, $55, $54, $20, $48, $49, $53, $20, $56, $4F, $49, $43, $45, $20, $43, $41, $4D, $45, $20, $46, $52, $4F, $4D, 0
+    ' FAR, FAR WAY...
+    Data $46, $41, $52, $2C, $20, $46, $41, $52, $20, $57, $41, $59, $2E, $2E, $2E, 0
+    Data 0
+CutsTxt6:
+    ' CHERIL FOUND AN EVEN BIGGER AND
+    Data $43, $48, $45, $52, $49, $4C, $20, $46, $4F, $55, $4E, $44, $20, $41, $4E, $20, $45, $56, $45, $4E, $20, $42, $49, $47, $47, $45, $52, $20, $41, $4E, $44, 0
+    ' UGLIER CREATURE.
+    Data $55, $47, $4C, $49, $45, $52, $20, $43, $52, $45, $41, $54, $55, $52, $45, $2E, 0
+    ' 'TELL ME HOW TO GET BACK TO MY
+    Data $27, $54, $45, $4C, $4C, $20, $4D, $45, $20, $48, $4F, $57, $20, $54, $4F, $20, $47, $45, $54, $20, $42, $41, $43, $4B, $20, $54, $4F, $20, $4D, $59, 0
+    ' WORLD, OR I'LL BEAT THE WORDS OUT
+    Data $57, $4F, $52, $4C, $44, $2C, $20, $4F, $52, $20, $49, $27, $4C, $4C, $20, $42, $45, $41, $54, $20, $54, $48, $45, $20, $57, $4F, $52, $44, $53, $20, $4F, $55, $54, 0
+    ' OF YOU!' - BUT THE CREATURE COULD
+    Data $4F, $46, $20, $59, $4F, $55, $21, $27, $20, $2D, $20, $42, $55, $54, $20, $54, $48, $45, $20, $43, $52, $45, $41, $54, $55, $52, $45, $20, $43, $4F, $55, $4C, $44, 0
+    ' ONLY POINT SOMEWHERE IN THE FAR.
+    Data $4F, $4E, $4C, $59, $20, $50, $4F, $49, $4E, $54, $20, $53, $4F, $4D, $45, $57, $48, $45, $52, $45, $20, $49, $4E, $20, $54, $48, $45, $20, $46, $41, $52, $2E, 0
+    ' 'THE FACTORY? AGAIN? PLEASE, NO!'
+    Data $27, $54, $48, $45, $20, $46, $41, $43, $54, $4F, $52, $59, $3F, $20, $41, $47, $41, $49, $4E, $3F, $20, $50, $4C, $45, $41, $53, $45, $2C, $20, $4E, $4F, $21, $27, 0
+    ' CRIED CHERIL.
+    Data $43, $52, $49, $45, $44, $20, $43, $48, $45, $52, $49, $4C, $2E, 0
+    ' 'CLEAN THE FACTORY AGAIN', IT WAS
+    Data $27, $43, $4C, $45, $41, $4E, $20, $54, $48, $45, $20, $46, $41, $43, $54, $4F, $52, $59, $20, $41, $47, $41, $49, $4E, $27, $2C, $20, $49, $54, $20, $57, $41, $53, 0
+    ' THE MAYOR SPEAKING FROM FAR AWAY,
+    Data $54, $48, $45, $20, $4D, $41, $59, $4F, $52, $20, $53, $50, $45, $41, $4B, $49, $4E, $47, $20, $46, $52, $4F, $4D, $20, $46, $41, $52, $20, $41, $57, $41, $59, $2C, 0
+    ' 'THAT WILL REDEEM YOU AND YOU'LL
+    Data $27, $54, $48, $41, $54, $20, $57, $49, $4C, $4C, $20, $52, $45, $44, $45, $45, $4D, $20, $59, $4F, $55, $20, $41, $4E, $44, $20, $59, $4F, $55, $27, $4C, $4C, 0
+    ' BE FREE!'
+    Data $42, $45, $20, $46, $52, $45, $45, $21, $27, 0
+    ' 'WELL, SO BE IT', SAID CHERIL
+    Data $27, $57, $45, $4C, $4C, $2C, $20, $53, $4F, $20, $42, $45, $20, $49, $54, $27, $2C, $20, $53, $41, $49, $44, $20, $43, $48, $45, $52, $49, $4C, 0
+    ' 'I'M NOT HAVING A BAD TIME AFTER
+    Data $27, $49, $27, $4D, $20, $4E, $4F, $54, $20, $48, $41, $56, $49, $4E, $47, $20, $41, $20, $42, $41, $44, $20, $54, $49, $4D, $45, $20, $41, $46, $54, $45, $52, 0
+    ' ALL... ALL THIS ASS-KICKING IS
+    Data $41, $4C, $4C, $2E, $2E, $2E, $20, $41, $4C, $4C, $20, $54, $48, $49, $53, $20, $41, $53, $53, $2D, $4B, $49, $43, $4B, $49, $4E, $47, $20, $49, $53, 0
+    ' QUITE FUN.'
+    Data $51, $55, $49, $54, $45, $20, $46, $55, $4E, $2E, $27, 0
+    ' SO SHE ENTERED THE FACTORY... AGAIN
+    Data $53, $4F, $20, $53, $48, $45, $20, $45, $4E, $54, $45, $52, $45, $44, $20, $54, $48, $45, $20, $46, $41, $43, $54, $4F, $52, $59, $2E, $2E, $2E, $20, $41, $47, $41, $49, $4E, 0
+    ' YET NOW EVERYTHING LOOKED DIFFERENT.
+    Data $59, $45, $54, $20, $4E, $4F, $57, $20, $45, $56, $45, $52, $59, $54, $48, $49, $4E, $47, $20, $4C, $4F, $4F, $4B, $45, $44, $20, $44, $49, $46, $46, $45, $52, $45, $4E, $54, $2E, 0
+    Data 0
+CutsTxt7:
+    ' 'SO THE TOWN IS CLEAN,
+    Data $27, $53, $4F, $20, $54, $48, $45, $20, $54, $4F, $57, $4E, $20, $49, $53, $20, $43, $4C, $45, $41, $4E, $2C, 0
+    ' THE FACTORY IS CLEAN,
+    Data $54, $48, $45, $20, $46, $41, $43, $54, $4F, $52, $59, $20, $49, $53, $20, $43, $4C, $45, $41, $4E, $2C, 0
+    ' THE CAVE IS CLEAN...'
+    Data $54, $48, $45, $20, $43, $41, $56, $45, $20, $49, $53, $20, $43, $4C, $45, $41, $4E, $2E, $2E, $2E, $27, 0
+    ' - ANNOUNCED CHERIL -
+    Data $2D, $20, $41, $4E, $4E, $4F, $55, $4E, $43, $45, $44, $20, $43, $48, $45, $52, $49, $4C, $20, $2D, 0
+    ' ' WHAT NEXT, DIRTY OLD MAN?
+    Data $27, $20, $57, $48, $41, $54, $20, $4E, $45, $58, $54, $2C, $20, $44, $49, $52, $54, $59, $20, $4F, $4C, $44, $20, $4D, $41, $4E, $3F, 0
+    ' BEHOLD MY POWER! HA HA HA HA!'
+    Data $42, $45, $48, $4F, $4C, $44, $20, $4D, $59, $20, $50, $4F, $57, $45, $52, $21, $20, $48, $41, $20, $48, $41, $20, $48, $41, $20, $48, $41, $21, $27, 0
+    ' 'YOU SURELY ARE STRONG, MA'AM.'
+    Data $27, $59, $4F, $55, $20, $53, $55, $52, $45, $4C, $59, $20, $41, $52, $45, $20, $53, $54, $52, $4F, $4E, $47, $2C, $20, $4D, $41, $27, $41, $4D, $2E, $27, 0
+    ' - SAID THE MAYOR -
+    Data $2D, $20, $53, $41, $49, $44, $20, $54, $48, $45, $20, $4D, $41, $59, $4F, $52, $20, $2D, 0
+    ' 'YOU HAVE SERVED ME WELL. I SHALL
+    Data $27, $59, $4F, $55, $20, $48, $41, $56, $45, $20, $53, $45, $52, $56, $45, $44, $20, $4D, $45, $20, $57, $45, $4C, $4C, $2E, $20, $49, $20, $53, $48, $41, $4C, $4C, 0
+    ' LET YOU GO. THE SEAL WILL BE LIFTED.
+    Data $4C, $45, $54, $20, $59, $4F, $55, $20, $47, $4F, $2E, $20, $54, $48, $45, $20, $53, $45, $41, $4C, $20, $57, $49, $4C, $4C, $20, $42, $45, $20, $4C, $49, $46, $54, $45, $44, $2E, 0
+    ' HONESTLY I DIDN'T THINK YOU WERE
+    Data $48, $4F, $4E, $45, $53, $54, $4C, $59, $20, $49, $20, $44, $49, $44, $4E, $27, $54, $20, $54, $48, $49, $4E, $4B, $20, $59, $4F, $55, $20, $57, $45, $52, $45, 0
+    ' ABLE, BUT I WAS PROVED WRONG.'
+    Data $41, $42, $4C, $45, $2C, $20, $42, $55, $54, $20, $49, $20, $57, $41, $53, $20, $50, $52, $4F, $56, $45, $44, $20, $57, $52, $4F, $4E, $47, $2E, $27, 0
+    ' 'SO THAT'S ALL?' - SHOUTED CHERIL
+    Data $27, $53, $4F, $20, $54, $48, $41, $54, $27, $53, $20, $41, $4C, $4C, $3F, $27, $20, $2D, $20, $53, $48, $4F, $55, $54, $45, $44, $20, $43, $48, $45, $52, $49, $4C, 0
+    ' 'WHAT IS STOPPING ME FROM GETTING
+    Data $27, $57, $48, $41, $54, $20, $49, $53, $20, $53, $54, $4F, $50, $50, $49, $4E, $47, $20, $4D, $45, $20, $46, $52, $4F, $4D, $20, $47, $45, $54, $54, $49, $4E, $47, 0
+    ' UP THERE AND DESTROY YOUR CRANEUM
+    Data $55, $50, $20, $54, $48, $45, $52, $45, $20, $41, $4E, $44, $20, $44, $45, $53, $54, $52, $4F, $59, $20, $59, $4F, $55, $52, $20, $43, $52, $41, $4E, $45, $55, $4D, 0
+    ' THE WAY I DID WITH ALL THOSE
+    Data $54, $48, $45, $20, $57, $41, $59, $20, $49, $20, $44, $49, $44, $20, $57, $49, $54, $48, $20, $41, $4C, $4C, $20, $54, $48, $4F, $53, $45, 0
+    ' MONSTERS OF YOURS?',
+    Data $4D, $4F, $4E, $53, $54, $45, $52, $53, $20, $4F, $46, $20, $59, $4F, $55, $52, $53, $3F, $27, $2C, 0
+    ' 'UH, I HAVE A PRIZE FOR YOU.'
+    Data $27, $55, $48, $2C, $20, $49, $20, $48, $41, $56, $45, $20, $41, $20, $50, $52, $49, $5A, $45, $20, $46, $4F, $52, $20, $59, $4F, $55, $2E, $27, 0
+    Data 0
+CutsTxt8:
+    ' 'A PRIZE? OH, I'M NOT WORTHY...',
+    Data $27, $41, $20, $50, $52, $49, $5A, $45, $3F, $20, $4F, $48, $2C, $20, $49, $27, $4D, $20, $4E, $4F, $54, $20, $57, $4F, $52, $54, $48, $59, $2E, $2E, $2E, $27, $2C, 0
+    ' LIED CHERIL, FLATTERED.
+    Data $4C, $49, $45, $44, $20, $43, $48, $45, $52, $49, $4C, $2C, $20, $46, $4C, $41, $54, $54, $45, $52, $45, $44, $2E, 0
+    ' 'YUP, I AM OFFICIALLY OFFERING YOU
+    Data $27, $59, $55, $50, $2C, $20, $49, $20, $41, $4D, $20, $4F, $46, $46, $49, $43, $49, $41, $4C, $4C, $59, $20, $4F, $46, $46, $45, $52, $49, $4E, $47, $20, $59, $4F, $55, 0
+    ' THE ONE AND ONLY COPA DEL MEAO,
+    Data $54, $48, $45, $20, $4F, $4E, $45, $20, $41, $4E, $44, $20, $4F, $4E, $4C, $59, $20, $43, $4F, $50, $41, $20, $44, $45, $4C, $20, $4D, $45, $41, $4F, $2C, 0
+    ' 'CAUSE QUIEN LA GANAO, SE LA LLEVAO,
+    Data $27, $43, $41, $55, $53, $45, $20, $51, $55, $49, $45, $4E, $20, $4C, $41, $20, $47, $41, $4E, $41, $4F, $2C, $20, $53, $45, $20, $4C, $41, $20, $4C, $4C, $45, $56, $41, $4F, $2C, 0
+    ' QUIEN LA PERDIO, SE LA BEBIO'.
+    Data $51, $55, $49, $45, $4E, $20, $4C, $41, $20, $50, $45, $52, $44, $49, $4F, $2C, $20, $53, $45, $20, $4C, $41, $20, $42, $45, $42, $49, $4F, $27, $2E, 0
+    ' 'I DON'T QUITE GET YOUR WORDS',
+    Data $27, $49, $20, $44, $4F, $4E, $27, $54, $20, $51, $55, $49, $54, $45, $20, $47, $45, $54, $20, $59, $4F, $55, $52, $20, $57, $4F, $52, $44, $53, $27, $2C, 0
+    ' SAID CHERIL,
+    Data $53, $41, $49, $44, $20, $43, $48, $45, $52, $49, $4C, $2C, 0
+    ' 'BUT THAT'S FINE. THAT'S A HUGE CUP
+    Data $27, $42, $55, $54, $20, $54, $48, $41, $54, $27, $53, $20, $46, $49, $4E, $45, $2E, $20, $54, $48, $41, $54, $27, $53, $20, $41, $20, $48, $55, $47, $45, $20, $43, $55, $50, 0
+    ' AND THAT'S A SHITLOAD OF WEE!'
+    Data $41, $4E, $44, $20, $54, $48, $41, $54, $27, $53, $20, $41, $20, $53, $48, $49, $54, $4C, $4F, $41, $44, $20, $4F, $46, $20, $57, $45, $45, $21, $27, 0
+    ' 'YOU NEVER KNOW WHEN YOU ARE GONNA
+    Data $27, $59, $4F, $55, $20, $4E, $45, $56, $45, $52, $20, $4B, $4E, $4F, $57, $20, $57, $48, $45, $4E, $20, $59, $4F, $55, $20, $41, $52, $45, $20, $47, $4F, $4E, $4E, $41, 0
+    ' NEED IT, SAVE IT WELL!'
+    Data $4E, $45, $45, $44, $20, $49, $54, $2C, $20, $53, $41, $56, $45, $20, $49, $54, $20, $57, $45, $4C, $4C, $21, $27, 0
+    ' SO CHERIL WAS HAPPY, THE MAYOR WAS
+    Data $53, $4F, $20, $43, $48, $45, $52, $49, $4C, $20, $57, $41, $53, $20, $48, $41, $50, $50, $59, $2C, $20, $54, $48, $45, $20, $4D, $41, $59, $4F, $52, $20, $57, $41, $53, 0
+    ' HAPPY, AND EVERYTHING WAS COOL.
+    Data $48, $41, $50, $50, $59, $2C, $20, $41, $4E, $44, $20, $45, $56, $45, $52, $59, $54, $48, $49, $4E, $47, $20, $57, $41, $53, $20, $43, $4F, $4F, $4C, $2E, 0
+    ' THAT'S THE WAY IT SHOULD BE.
+    Data $54, $48, $41, $54, $27, $53, $20, $54, $48, $45, $20, $57, $41, $59, $20, $49, $54, $20, $53, $48, $4F, $55, $4C, $44, $20, $42, $45, $2E, 0
+    ' AND NOW WHAT? WELL, NEW ADVENTURES
+    Data $41, $4E, $44, $20, $4E, $4F, $57, $20, $57, $48, $41, $54, $3F, $20, $57, $45, $4C, $4C, $2C, $20, $4E, $45, $57, $20, $41, $44, $56, $45, $4E, $54, $55, $52, $45, $53, 0
+    ' AWAIT CHERIL. JUST STAY TUNED!
+    Data $41, $57, $41, $49, $54, $20, $43, $48, $45, $52, $49, $4C, $2E, $20, $4A, $55, $53, $54, $20, $53, $54, $41, $59, $20, $54, $55, $4E, $45, $44, $21, 0
+    ' THANKS FOR PLAYING!
+    Data $54, $48, $41, $4E, $4B, $53, $20, $46, $4F, $52, $20, $50, $4C, $41, $59, $49, $4E, $47, $21, 0
+	Data 0
+	
+'' Spanish too
+    
+CutsTxtE1:
+    ' RECUERDA QUE CHERIL NO ERA FELIZ
+    Data $52, $45, $43, $55, $45, $52, $44, $41, $20, $51, $55, $45, $20, $43, $48, $45, $52, $49, $4C, $20, $4E, $4F, $20, $45, $52, $41, $20, $46, $45, $4C, $49, $5A, 0
+    ' EN SU VIEJO BOSQUE FLORIDO,
+    Data $45, $4E, $20, $53, $55, $20, $56, $49, $45, $4A, $4F, $20, $42, $4F, $53, $51, $55, $45, $20, $46, $4C, $4F, $52, $49, $44, $4F, $2C, 0
+    ' ASI QUE HIZO LAS MALETAS Y SE FUE
+    Data $41, $53, $49, $20, $51, $55, $45, $20, $48, $49, $5A, $4F, $20, $4C, $41, $53, $20, $4D, $41, $4C, $45, $54, $41, $53, $20, $59, $20, $53, $45, $20, $46, $55, $45, 0
+    ' A BUSCARSE LA VIDA POR EL MUNDO.
+    Data $41, $20, $42, $55, $53, $43, $41, $52, $53, $45, $20, $4C, $41, $20, $56, $49, $44, $41, $20, $50, $4F, $52, $20, $45, $4C, $20, $4D, $55, $4E, $44, $4F, $2E, 0
+    ' Y ESTO FUE LO QUE OCURRIO
+    Data $59, $20, $45, $53, $54, $4F, $20, $46, $55, $45, $20, $4C, $4F, $20, $51, $55, $45, $20, $4F, $43, $55, $52, $52, $49, $4F, 0
+    ' HACE TAN SOLO UNA SEMANA . . .
+    Data $48, $41, $43, $45, $20, $54, $41, $4E, $20, $53, $4F, $4C, $4F, $20, $55, $4E, $41, $20, $53, $45, $4D, $41, $4E, $41, $20, $2E, $20, $2E, $20, $2E, 0
+    ' CHERIL SE APROXIMA A LA CIUDAD,
+    Data $43, $48, $45, $52, $49, $4C, $20, $53, $45, $20, $41, $50, $52, $4F, $58, $49, $4D, $41, $20, $41, $20, $4C, $41, $20, $43, $49, $55, $44, $41, $44, $2C, 0
+    ' VE LOS EDIFICIOS EN EL HORIZONTE
+    Data $56, $45, $20, $4C, $4F, $53, $20, $45, $44, $49, $46, $49, $43, $49, $4F, $53, $20, $45, $4E, $20, $45, $4C, $20, $48, $4F, $52, $49, $5A, $4F, $4E, $54, $45, 0
+    ' Y SE IMAGINA UNA VIDA MEJOR,
+    Data $59, $20, $53, $45, $20, $49, $4D, $41, $47, $49, $4E, $41, $20, $55, $4E, $41, $20, $56, $49, $44, $41, $20, $4D, $45, $4A, $4F, $52, $2C, 0
+    ' LEJOS DE MONOS Y SETAS.
+    Data $4C, $45, $4A, $4F, $53, $20, $44, $45, $20, $4D, $4F, $4E, $4F, $53, $20, $59, $20, $53, $45, $54, $41, $53, $2E, 0
+    ' PERO NO PUEDE NI IMAGINAR LA
+    Data $50, $45, $52, $4F, $20, $4E, $4F, $20, $50, $55, $45, $44, $45, $20, $4E, $49, $20, $49, $4D, $41, $47, $49, $4E, $41, $52, $20, $4C, $41, 0
+    ' HORRIBLE SORPRESA QUE LE ESPERA.
+    Data $48, $4F, $52, $52, $49, $42, $4C, $45, $20, $53, $4F, $52, $50, $52, $45, $53, $41, $20, $51, $55, $45, $20, $4C, $45, $20, $45, $53, $50, $45, $52, $41, $2E, 0
+    ' PORQUE TODAS LAS CALLES ESTAN
+    Data $50, $4F, $52, $51, $55, $45, $20, $54, $4F, $44, $41, $53, $20, $4C, $41, $53, $20, $43, $41, $4C, $4C, $45, $53, $20, $45, $53, $54, $41, $4E, 0
+    ' VACIAS. 'HAY ALGUIEN AHI?'.
+    Data $56, $41, $43, $49, $41, $53, $2E, $20, $27, $48, $41, $59, $20, $41, $4C, $47, $55, $49, $45, $4E, $20, $41, $48, $49, $3F, $27, $2E, 0
+    ' NI UN SOLO SONIDO DE BULLICIO
+    Data $4E, $49, $20, $55, $4E, $20, $53, $4F, $4C, $4F, $20, $53, $4F, $4E, $49, $44, $4F, $20, $44, $45, $20, $42, $55, $4C, $4C, $49, $43, $49, $4F, 0
+    ' HUMANO, SOLO UN PROFUNDO, OSCURO,
+    Data $48, $55, $4D, $41, $4E, $4F, $2C, $20, $53, $4F, $4C, $4F, $20, $55, $4E, $20, $50, $52, $4F, $46, $55, $4E, $44, $4F, $2C, $20, $4F, $53, $43, $55, $52, $4F, $2C, 0
+    ' MALIGNO GRU\IDO. LA HAN DESCUBIERTO
+    Data $4D, $41, $4C, $49, $47, $4E, $4F, $20, $47, $52, $55, $5C, $49, $44, $4F, $2E, $20, $4C, $41, $20, $48, $41, $4E, $20, $44, $45, $53, $43, $55, $42, $49, $45, $52, $54, $4F, 0
+    ' Y CIEN OJOS LA CONTEMPLAN.
+    Data $59, $20, $43, $49, $45, $4E, $20, $4F, $4A, $4F, $53, $20, $4C, $41, $20, $43, $4F, $4E, $54, $45, $4D, $50, $4C, $41, $4E, $2E, 0
+    Data 0
+CutsTxtE2:
+    ' 'PERO QUE MIERDA ES ESTO?'
+    Data $27, $50, $45, $52, $4F, $20, $51, $55, $45, $20, $4D, $49, $45, $52, $44, $41, $20, $45, $53, $20, $45, $53, $54, $4F, $3F, $27, 0
+    ' SE PREGUNTA CHERIL EN VOZ ALTA.
+    Data $53, $45, $20, $50, $52, $45, $47, $55, $4E, $54, $41, $20, $43, $48, $45, $52, $49, $4C, $20, $45, $4E, $20, $56, $4F, $5A, $20, $41, $4C, $54, $41, $2E, 0
+    ' 'OH, NO TE LO HABIA MENCIONADO?'
+    Data $27, $4F, $48, $2C, $20, $4E, $4F, $20, $54, $45, $20, $4C, $4F, $20, $48, $41, $42, $49, $41, $20, $4D, $45, $4E, $43, $49, $4F, $4E, $41, $44, $4F, $3F, $27, 0
+    ' - ERA EL ALCALDE QUIEN HABLABA.
+    Data $2D, $20, $45, $52, $41, $20, $45, $4C, $20, $41, $4C, $43, $41, $4C, $44, $45, $20, $51, $55, $49, $45, $4E, $20, $48, $41, $42, $4C, $41, $42, $41, $2E, 0
+    ' 'LA CIUDAD ESTA CONDENADA, TODOS
+    Data $27, $4C, $41, $20, $43, $49, $55, $44, $41, $44, $20, $45, $53, $54, $41, $20, $43, $4F, $4E, $44, $45, $4E, $41, $44, $41, $2C, $20, $54, $4F, $44, $4F, $53, 0
+    ' SE HAN CONVERTIDO EN MONSTRUOS!'
+    Data $53, $45, $20, $48, $41, $4E, $20, $43, $4F, $4E, $56, $45, $52, $54, $49, $44, $4F, $20, $45, $4E, $20, $4D, $4F, $4E, $53, $54, $52, $55, $4F, $53, $21, $27, 0
+    ' 'PERO QUE HECHICERIA ES ESTA?
+    Data $27, $50, $45, $52, $4F, $20, $51, $55, $45, $20, $48, $45, $43, $48, $49, $43, $45, $52, $49, $41, $20, $45, $53, $20, $45, $53, $54, $41, $3F, 0
+    ' ME VOY DE AQUI! ADIOS!'
+    Data $4D, $45, $20, $56, $4F, $59, $20, $44, $45, $20, $41, $51, $55, $49, $21, $20, $41, $44, $49, $4F, $53, $21, $27, 0
+    ' - DIJO CHERIL. 'PERO NO PUEDES
+    Data $2D, $20, $44, $49, $4A, $4F, $20, $43, $48, $45, $52, $49, $4C, $2E, $20, $27, $50, $45, $52, $4F, $20, $4E, $4F, $20, $50, $55, $45, $44, $45, $53, 0
+    ' HE LEVANTADO UN SELLO MAGICO.
+    Data $48, $45, $20, $4C, $45, $56, $41, $4E, $54, $41, $44, $4F, $20, $55, $4E, $20, $53, $45, $4C, $4C, $4F, $20, $4D, $41, $47, $49, $43, $4F, $2E, 0
+    ' NO PODRAS IRTE HASTA QUE TE LIBRES
+    Data $4E, $4F, $20, $50, $4F, $44, $52, $41, $53, $20, $49, $52, $54, $45, $20, $48, $41, $53, $54, $41, $20, $51, $55, $45, $20, $54, $45, $20, $4C, $49, $42, $52, $45, $53, 0
+    ' DE TODOS LOS BICHARRACOS.
+    Data $44, $45, $20, $54, $4F, $44, $4F, $53, $20, $4C, $4F, $53, $20, $42, $49, $43, $48, $41, $52, $52, $41, $43, $4F, $53, $2E, 0
+    ' NO LOS PODRAS TOCAR SI SE MUEVEN,
+    Data $4E, $4F, $20, $4C, $4F, $53, $20, $50, $4F, $44, $52, $41, $53, $20, $54, $4F, $43, $41, $52, $20, $53, $49, $20, $53, $45, $20, $4D, $55, $45, $56, $45, $4E, $2C, 0
+    ' PERO LAS VIBRACIONES LOS ATURDEN.
+    Data $50, $45, $52, $4F, $20, $4C, $41, $53, $20, $56, $49, $42, $52, $41, $43, $49, $4F, $4E, $45, $53, $20, $4C, $4F, $53, $20, $41, $54, $55, $52, $44, $45, $4E, $2E, 0
+    ' USA ESAS VIEJAS MAQUINAS PARA QUE SE
+    Data $55, $53, $41, $20, $45, $53, $41, $53, $20, $56, $49, $45, $4A, $41, $53, $20, $4D, $41, $51, $55, $49, $4E, $41, $53, $20, $50, $41, $52, $41, $20, $51, $55, $45, $20, $53, $45, 0
+    ' PAREN UN RATO. EMPLEALAS SABIAMENTE
+    Data $50, $41, $52, $45, $4E, $20, $55, $4E, $20, $52, $41, $54, $4F, $2E, $20, $45, $4D, $50, $4C, $45, $41, $4C, $41, $53, $20, $53, $41, $42, $49, $41, $4D, $45, $4E, $54, $45, 0
+    ' Y SALTA SOBRE SUS CABEZAS!'
+    Data $59, $20, $53, $41, $4C, $54, $41, $20, $53, $4F, $42, $52, $45, $20, $53, $55, $53, $20, $43, $41, $42, $45, $5A, $41, $53, $21, $27, 0
+    ' DIJO EL ALCALDE
+    Data $44, $49, $4A, $4F, $20, $45, $4C, $20, $41, $4C, $43, $41, $4C, $44, $45, 0
+    Data 0
+CutsTxtE3:
+    ' 'AHORA LAS CALLES ESTAN LIMPIAS'
+    Data $27, $41, $48, $4F, $52, $41, $20, $4C, $41, $53, $20, $43, $41, $4C, $4C, $45, $53, $20, $45, $53, $54, $41, $4E, $20, $4C, $49, $4D, $50, $49, $41, $53, $27, 0
+    ' - GRITO CHERIL.
+    Data $2D, $20, $47, $52, $49, $54, $4F, $20, $43, $48, $45, $52, $49, $4C, $2E, 0
+    ' 'YA VEO, YA, SE\ORA'
+    Data $27, $59, $41, $20, $56, $45, $4F, $2C, $20, $59, $41, $2C, $20, $53, $45, $5C, $4F, $52, $41, $27, 0
+    ' - DIJO EL ALCALDE.
+    Data $2D, $20, $44, $49, $4A, $4F, $20, $45, $4C, $20, $41, $4C, $43, $41, $4C, $44, $45, $2E, 0
+    ' 'PERO TU TRABAJO AQUI AUN NO HA
+    Data $27, $50, $45, $52, $4F, $20, $54, $55, $20, $54, $52, $41, $42, $41, $4A, $4F, $20, $41, $51, $55, $49, $20, $41, $55, $4E, $20, $4E, $4F, $20, $48, $41, 0
+    ' TERMINADO. VE A LA VIEJA FABRICA'
+    Data $54, $45, $52, $4D, $49, $4E, $41, $44, $4F, $2E, $20, $56, $45, $20, $41, $20, $4C, $41, $20, $56, $49, $45, $4A, $41, $20, $46, $41, $42, $52, $49, $43, $41, $27, 0
+    ' 'QUE ESTAS DICIENDO, VIEJALES?'
+    Data $27, $51, $55, $45, $20, $45, $53, $54, $41, $53, $20, $44, $49, $43, $49, $45, $4E, $44, $4F, $2C, $20, $56, $49, $45, $4A, $41, $4C, $45, $53, $3F, $27, 0
+    ' - PROTESTO CHERIL
+    Data $2D, $20, $50, $52, $4F, $54, $45, $53, $54, $4F, $20, $43, $48, $45, $52, $49, $4C, 0
+    ' 'HAY MAS MONSTRUOS ALLI. ME VOY
+    Data $27, $48, $41, $59, $20, $4D, $41, $53, $20, $4D, $4F, $4E, $53, $54, $52, $55, $4F, $53, $20, $41, $4C, $4C, $49, $2E, $20, $4D, $45, $20, $56, $4F, $59, 0
+    ' A AHORRAR UN MILLON EN SUELDOS,
+    Data $41, $20, $41, $48, $4F, $52, $52, $41, $52, $20, $55, $4E, $20, $4D, $49, $4C, $4C, $4F, $4E, $20, $45, $4E, $20, $53, $55, $45, $4C, $44, $4F, $53, $2C, 0
+    ' PERO HAY QUE HACER LIMPIEZA.'
+    Data $50, $45, $52, $4F, $20, $48, $41, $59, $20, $51, $55, $45, $20, $48, $41, $43, $45, $52, $20, $4C, $49, $4D, $50, $49, $45, $5A, $41, $2E, $27, 0
+    ' - EXPLICO EL ALCALDE.
+    Data $2D, $20, $45, $58, $50, $4C, $49, $43, $4F, $20, $45, $4C, $20, $41, $4C, $43, $41, $4C, $44, $45, $2E, 0
+    ' 'TE MATARE CON MIS MANOS DESNUDAS,
+    Data $27, $54, $45, $20, $4D, $41, $54, $41, $52, $45, $20, $43, $4F, $4E, $20, $4D, $49, $53, $20, $4D, $41, $4E, $4F, $53, $20, $44, $45, $53, $4E, $55, $44, $41, $53, $2C, 0
+    ' TE LO JURO!'
+    Data $54, $45, $20, $4C, $4F, $20, $4A, $55, $52, $4F, $21, $27, 0
+    ' - EXPLOTO CHERIL
+    Data $2D, $20, $45, $58, $50, $4C, $4F, $54, $4F, $20, $43, $48, $45, $52, $49, $4C, 0
+    ' 'CALMATE Y MIDE TUS POSIBILIDADES
+    Data $27, $43, $41, $4C, $4D, $41, $54, $45, $20, $59, $20, $4D, $49, $44, $45, $20, $54, $55, $53, $20, $50, $4F, $53, $49, $42, $49, $4C, $49, $44, $41, $44, $45, $53, 0
+    ' HAZ LO QUE TE DIGO O TE PUDRIRAS
+    Data $48, $41, $5A, $20, $4C, $4F, $20, $51, $55, $45, $20, $54, $45, $20, $44, $49, $47, $4F, $20, $4F, $20, $54, $45, $20, $50, $55, $44, $52, $49, $52, $41, $53, 0
+    ' AQUI' - RIO EL ALCALDE.
+    Data $41, $51, $55, $49, $27, $20, $2D, $20, $52, $49, $4F, $20, $45, $4C, $20, $41, $4C, $43, $41, $4C, $44, $45, $2E, 0
+    Data 0
+CutsTxtE4:
+    ' 'Y AHORA ESTOY TAN MOSQUEADA QUE
+    Data $27, $59, $20, $41, $48, $4F, $52, $41, $20, $45, $53, $54, $4F, $59, $20, $54, $41, $4E, $20, $4D, $4F, $53, $51, $55, $45, $41, $44, $41, $20, $51, $55, $45, 0
+    ' QUEMO! DEJAME IRME, BASURA!'
+    Data $51, $55, $45, $4D, $4F, $21, $20, $44, $45, $4A, $41, $4D, $45, $20, $49, $52, $4D, $45, $2C, $20, $42, $41, $53, $55, $52, $41, $21, $27, 0
+    ' - CHILLO CHERIL
+    Data $2D, $20, $43, $48, $49, $4C, $4C, $4F, $20, $43, $48, $45, $52, $49, $4C, 0
+    ' 'VENGA, MI NI\A, QUE SE QUE TE LO
+    Data $27, $56, $45, $4E, $47, $41, $2C, $20, $4D, $49, $20, $4E, $49, $5C, $41, $2C, $20, $51, $55, $45, $20, $53, $45, $20, $51, $55, $45, $20, $54, $45, $20, $4C, $4F, 0
+    ' ESTAS PASANDO BOMBA REPARTIENDO
+    Data $45, $53, $54, $41, $53, $20, $50, $41, $53, $41, $4E, $44, $4F, $20, $42, $4F, $4D, $42, $41, $20, $52, $45, $50, $41, $52, $54, $49, $45, $4E, $44, $4F, 0
+    ' TORTAZOS!' - CONTESTO EL ALCALDE
+    Data $54, $4F, $52, $54, $41, $5A, $4F, $53, $21, $27, $20, $2D, $20, $43, $4F, $4E, $54, $45, $53, $54, $4F, $20, $45, $4C, $20, $41, $4C, $43, $41, $4C, $44, $45, 0
+    ' 'SERA VERDAD, PERO ME TOCA EL
+    Data $27, $53, $45, $52, $41, $20, $56, $45, $52, $44, $41, $44, $2C, $20, $50, $45, $52, $4F, $20, $4D, $45, $20, $54, $4F, $43, $41, $20, $45, $4C, 0
+    ' TOTONUT HACER COSAS POR OBLIGACION'
+    Data $54, $4F, $54, $4F, $4E, $55, $54, $20, $48, $41, $43, $45, $52, $20, $43, $4F, $53, $41, $53, $20, $50, $4F, $52, $20, $4F, $42, $4C, $49, $47, $41, $43, $49, $4F, $4E, $27, 0
+    ' 'PERO CASI HAS TERMINADO, SE\ORA
+    Data $27, $50, $45, $52, $4F, $20, $43, $41, $53, $49, $20, $48, $41, $53, $20, $54, $45, $52, $4D, $49, $4E, $41, $44, $4F, $2C, $20, $53, $45, $5C, $4F, $52, $41, 0
+    ' VES LA OSCURA CUEVA AHI DELANTE?
+    Data $56, $45, $53, $20, $4C, $41, $20, $4F, $53, $43, $55, $52, $41, $20, $43, $55, $45, $56, $41, $20, $41, $48, $49, $20, $44, $45, $4C, $41, $4E, $54, $45, $3F, 0
+    ' EXTRAIAMOS QUIMICOS DE AHI. A LO
+    Data $45, $58, $54, $52, $41, $49, $41, $4D, $4F, $53, $20, $51, $55, $49, $4D, $49, $43, $4F, $53, $20, $44, $45, $20, $41, $48, $49, $2E, $20, $41, $20, $4C, $4F, 0
+    ' MEJOR POR ESO TODOS ESTA RAROS.'
+    Data $4D, $45, $4A, $4F, $52, $20, $50, $4F, $52, $20, $45, $53, $4F, $20, $54, $4F, $44, $4F, $53, $20, $45, $53, $54, $41, $20, $52, $41, $52, $4F, $53, $2E, $27, 0
+    ' 'O.K., O.K., ALCALDECITO,
+    Data $27, $4F, $2E, $4B, $2E, $2C, $20, $4F, $2E, $4B, $2E, $2C, $20, $41, $4C, $43, $41, $4C, $44, $45, $43, $49, $54, $4F, $2C, 0
+    ' TE VOY A LIMPIAR LA CUEVA TAMBIEN,
+    Data $54, $45, $20, $56, $4F, $59, $20, $41, $20, $4C, $49, $4D, $50, $49, $41, $52, $20, $4C, $41, $20, $43, $55, $45, $56, $41, $20, $54, $41, $4D, $42, $49, $45, $4E, $2C, 0
+    ' PERO SOLO SI PROMETES QUE SERA
+    Data $50, $45, $52, $4F, $20, $53, $4F, $4C, $4F, $20, $53, $49, $20, $50, $52, $4F, $4D, $45, $54, $45, $53, $20, $51, $55, $45, $20, $53, $45, $52, $41, 0
+    ' LO ULTIMO QUE TENGA QUE HACER!'
+    Data $4C, $4F, $20, $55, $4C, $54, $49, $4D, $4F, $20, $51, $55, $45, $20, $54, $45, $4E, $47, $41, $20, $51, $55, $45, $20, $48, $41, $43, $45, $52, $21, $27, 0
+    ' 'POR SUPUESTO. LIMPIA MI CUEVA,
+    Data $27, $50, $4F, $52, $20, $53, $55, $50, $55, $45, $53, $54, $4F, $2E, $20, $4C, $49, $4D, $50, $49, $41, $20, $4D, $49, $20, $43, $55, $45, $56, $41, $2C, 0
+    ' Y TE PODRAS IWR.'
+    Data $59, $20, $54, $45, $20, $50, $4F, $44, $52, $41, $53, $20, $49, $57, $52, $2E, $27, 0
+    Data 0
+CutsTxtE5:
+    ' PERO CUANDO CHERIL SALIO DE LA
+    Data $50, $45, $52, $4F, $20, $43, $55, $41, $4E, $44, $4F, $20, $43, $48, $45, $52, $49, $4C, $20, $53, $41, $4C, $49, $4F, $20, $44, $45, $20, $4C, $41, 0
+    ' CUEVA CON EL TRABAJO HECHO, UNA
+    Data $43, $55, $45, $56, $41, $20, $43, $4F, $4E, $20, $45, $4C, $20, $54, $52, $41, $42, $41, $4A, $4F, $20, $48, $45, $43, $48, $4F, $2C, $20, $55, $4E, $41, 0
+    ' EXTRA\A FIGURA APARECIO DE LA NADA'
+    Data $45, $58, $54, $52, $41, $5C, $41, $20, $46, $49, $47, $55, $52, $41, $20, $41, $50, $41, $52, $45, $43, $49, $4F, $20, $44, $45, $20, $4C, $41, $20, $4E, $41, $44, $41, $27, 0
+    ' 'PERO QUE LECHES ES ESTO?
+    Data $27, $50, $45, $52, $4F, $20, $51, $55, $45, $20, $4C, $45, $43, $48, $45, $53, $20, $45, $53, $20, $45, $53, $54, $4F, $3F, 0
+    ' PERO SI HE MATADO A TODO EL MUNDO!'
+    Data $50, $45, $52, $4F, $20, $53, $49, $20, $48, $45, $20, $4D, $41, $54, $41, $44, $4F, $20, $41, $20, $54, $4F, $44, $4F, $20, $45, $4C, $20, $4D, $55, $4E, $44, $4F, $21, $27, 0
+    ' DIJO CHERIL.
+    Data $44, $49, $4A, $4F, $20, $43, $48, $45, $52, $49, $4C, $2E, 0
+    ' 'WAW! NO PUEDO CREERLO! ES UNA
+    Data $27, $57, $41, $57, $21, $20, $4E, $4F, $20, $50, $55, $45, $44, $4F, $20, $43, $52, $45, $45, $52, $4C, $4F, $21, $20, $45, $53, $20, $55, $4E, $41, 0
+    ' CRIATURA HECHA DE MALDAD QUE SE HA
+    Data $43, $52, $49, $41, $54, $55, $52, $41, $20, $48, $45, $43, $48, $41, $20, $44, $45, $20, $4D, $41, $4C, $44, $41, $44, $20, $51, $55, $45, $20, $53, $45, $20, $48, $41, 0
+    ' MATERIALIZADO DE TU ENFADO! TEN
+    Data $4D, $41, $54, $45, $52, $49, $41, $4C, $49, $5A, $41, $44, $4F, $20, $44, $45, $20, $54, $55, $20, $45, $4E, $46, $41, $44, $4F, $21, $20, $54, $45, $4E, 0
+    ' CUIDADO! COMO ESTORNUDE TE LANZARA
+    Data $43, $55, $49, $44, $41, $44, $4F, $21, $20, $43, $4F, $4D, $4F, $20, $45, $53, $54, $4F, $52, $4E, $55, $44, $45, $20, $54, $45, $20, $4C, $41, $4E, $5A, $41, $52, $41, 0
+    ' A SU DIMENSION INFERNAL DE LOS 80'
+    Data $41, $20, $53, $55, $20, $44, $49, $4D, $45, $4E, $53, $49, $4F, $4E, $20, $49, $4E, $46, $45, $52, $4E, $41, $4C, $20, $44, $45, $20, $4C, $4F, $53, $20, $38, $30, $27, 0
+    ' DIJO EL ALCALDE.
+    Data $44, $49, $4A, $4F, $20, $45, $4C, $20, $41, $4C, $43, $41, $4C, $44, $45, $2E, 0
+    ' PERO LA CRIATURA ESTORNUDO, Y UNA OLA
+    Data $50, $45, $52, $4F, $20, $4C, $41, $20, $43, $52, $49, $41, $54, $55, $52, $41, $20, $45, $53, $54, $4F, $52, $4E, $55, $44, $4F, $2C, $20, $59, $20, $55, $4E, $41, $20, $4F, $4C, $41, 0
+    ' DE PURA MALDAD DESTRUYO LA REALIDAD.
+    Data $44, $45, $20, $50, $55, $52, $41, $20, $4D, $41, $4C, $44, $41, $44, $20, $44, $45, $53, $54, $52, $55, $59, $4F, $20, $4C, $41, $20, $52, $45, $41, $4C, $49, $44, $41, $44, $2E, 0
+    ' 'AHORA TENDRAS QUE LUCHAR PARA
+    Data $27, $41, $48, $4F, $52, $41, $20, $54, $45, $4E, $44, $52, $41, $53, $20, $51, $55, $45, $20, $4C, $55, $43, $48, $41, $52, $20, $50, $41, $52, $41, 0
+    ' VOLVER', DIJO EL ALCALDE.
+    Data $56, $4F, $4C, $56, $45, $52, $27, $2C, $20, $44, $49, $4A, $4F, $20, $45, $4C, $20, $41, $4C, $43, $41, $4C, $44, $45, $2E, 0
+    ' PERO SU VOZ VENIA DE MUY, MUY LEJOS,
+    Data $50, $45, $52, $4F, $20, $53, $55, $20, $56, $4F, $5A, $20, $56, $45, $4E, $49, $41, $20, $44, $45, $20, $4D, $55, $59, $2C, $20, $4D, $55, $59, $20, $4C, $45, $4A, $4F, $53, $2C, 0
+    ' Y CHERIL YA NO PODIA VERLE...
+    Data $59, $20, $43, $48, $45, $52, $49, $4C, $20, $59, $41, $20, $4E, $4F, $20, $50, $4F, $44, $49, $41, $20, $56, $45, $52, $4C, $45, $2E, $2E, $2E, 0
+    Data 0
+CutsTxtE6:
+    ' CHERIL ENCONTRO UN BICHO AUN MAS
+    Data $43, $48, $45, $52, $49, $4C, $20, $45, $4E, $43, $4F, $4E, $54, $52, $4F, $20, $55, $4E, $20, $42, $49, $43, $48, $4F, $20, $41, $55, $4E, $20, $4D, $41, $53, 0
+    ' GRANDE Y ASQUEROSO AL SALIR DE LA
+    Data $47, $52, $41, $4E, $44, $45, $20, $59, $20, $41, $53, $51, $55, $45, $52, $4F, $53, $4F, $20, $41, $4C, $20, $53, $41, $4C, $49, $52, $20, $44, $45, $20, $4C, $41, 0
+    ' CIUDAD ALTERNATIVA. 'DIME COMO SALIR
+    Data $43, $49, $55, $44, $41, $44, $20, $41, $4C, $54, $45, $52, $4E, $41, $54, $49, $56, $41, $2E, $20, $27, $44, $49, $4D, $45, $20, $43, $4F, $4D, $4F, $20, $53, $41, $4C, $49, $52, 0
+    ' DE AQUI, SOBACO DE PIERNA, O TE
+    Data $44, $45, $20, $41, $51, $55, $49, $2C, $20, $53, $4F, $42, $41, $43, $4F, $20, $44, $45, $20, $50, $49, $45, $52, $4E, $41, $2C, $20, $4F, $20, $54, $45, 0
+    ' MACHACO' - PERO LA CRIATURA SOLO PUDO
+    Data $4D, $41, $43, $48, $41, $43, $4F, $27, $20, $2D, $20, $50, $45, $52, $4F, $20, $4C, $41, $20, $43, $52, $49, $41, $54, $55, $52, $41, $20, $53, $4F, $4C, $4F, $20, $50, $55, $44, $4F, 0
+    ' SE\ALAR A UN PUNTO EN LA LEJANIA.
+    Data $53, $45, $5C, $41, $4C, $41, $52, $20, $41, $20, $55, $4E, $20, $50, $55, $4E, $54, $4F, $20, $45, $4E, $20, $4C, $41, $20, $4C, $45, $4A, $41, $4E, $49, $41, $2E, 0
+    ' 'LA FABRICA? OTRA VEZ? PORFA, NOOO!'
+    Data $27, $4C, $41, $20, $46, $41, $42, $52, $49, $43, $41, $3F, $20, $4F, $54, $52, $41, $20, $56, $45, $5A, $3F, $20, $50, $4F, $52, $46, $41, $2C, $20, $4E, $4F, $4F, $4F, $21, $27, 0
+    ' GRITO CHERIL.
+    Data $47, $52, $49, $54, $4F, $20, $43, $48, $45, $52, $49, $4C, $2E, 0
+    ' 'LIMPIA DE NUEVO LA FABRICA', DIJO
+    Data $27, $4C, $49, $4D, $50, $49, $41, $20, $44, $45, $20, $4E, $55, $45, $56, $4F, $20, $4C, $41, $20, $46, $41, $42, $52, $49, $43, $41, $27, $2C, $20, $44, $49, $4A, $4F, 0
+    ' EL ALCALDE DESDE OTRA DIMENSION.
+    Data $45, $4C, $20, $41, $4C, $43, $41, $4C, $44, $45, $20, $44, $45, $53, $44, $45, $20, $4F, $54, $52, $41, $20, $44, $49, $4D, $45, $4E, $53, $49, $4F, $4E, $2E, 0
+    ' 'ESO TE REDIMIRA Y PODRAS VOLVER,
+    Data $27, $45, $53, $4F, $20, $54, $45, $20, $52, $45, $44, $49, $4D, $49, $52, $41, $20, $59, $20, $50, $4F, $44, $52, $41, $53, $20, $56, $4F, $4C, $56, $45, $52, $2C, 0
+    ' HAZME CASO!'
+    Data $48, $41, $5A, $4D, $45, $20, $43, $41, $53, $4F, $21, $27, 0
+    ' 'BUENO, SEA...', DIJO CHERIL
+    Data $27, $42, $55, $45, $4E, $4F, $2C, $20, $53, $45, $41, $2E, $2E, $2E, $27, $2C, $20, $44, $49, $4A, $4F, $20, $43, $48, $45, $52, $49, $4C, 0
+    ' 'NO ME LO ESTOY PASANDO MAL DEL TODO,
+    Data $27, $4E, $4F, $20, $4D, $45, $20, $4C, $4F, $20, $45, $53, $54, $4F, $59, $20, $50, $41, $53, $41, $4E, $44, $4F, $20, $4D, $41, $4C, $20, $44, $45, $4C, $20, $54, $4F, $44, $4F, $2C, 0
+    ' LA VERDAD... HOSTIAR ES DIVERTIDO,
+    Data $4C, $41, $20, $56, $45, $52, $44, $41, $44, $2E, $2E, $2E, $20, $48, $4F, $53, $54, $49, $41, $52, $20, $45, $53, $20, $44, $49, $56, $45, $52, $54, $49, $44, $4F, $2C, 0
+    ' Y POR ALLI HAY MUCHO QUE HOSTIAR'
+    Data $59, $20, $50, $4F, $52, $20, $41, $4C, $4C, $49, $20, $48, $41, $59, $20, $4D, $55, $43, $48, $4F, $20, $51, $55, $45, $20, $48, $4F, $53, $54, $49, $41, $52, $27, 0
+    ' ASI QUE ENTRO EN LA FABRICA DE NUEVO,
+    Data $41, $53, $49, $20, $51, $55, $45, $20, $45, $4E, $54, $52, $4F, $20, $45, $4E, $20, $4C, $41, $20, $46, $41, $42, $52, $49, $43, $41, $20, $44, $45, $20, $4E, $55, $45, $56, $4F, $2C, 0
+    ' PERO AHORA TODO PARECIA DIFERENTE...
+    Data $50, $45, $52, $4F, $20, $41, $48, $4F, $52, $41, $20, $54, $4F, $44, $4F, $20, $50, $41, $52, $45, $43, $49, $41, $20, $44, $49, $46, $45, $52, $45, $4E, $54, $45, $2E, $2E, $2E, 0
+    Data 0
+CutsTxtE7:
+    ' 'PUES LA CIUDAD ESTA LIMPIA,
+    Data $27, $50, $55, $45, $53, $20, $4C, $41, $20, $43, $49, $55, $44, $41, $44, $20, $45, $53, $54, $41, $20, $4C, $49, $4D, $50, $49, $41, $2C, 0
+    ' LA FABRICA ESTA LIMPIA,
+    Data $4C, $41, $20, $46, $41, $42, $52, $49, $43, $41, $20, $45, $53, $54, $41, $20, $4C, $49, $4D, $50, $49, $41, $2C, 0
+    ' LA CUEVA TAMBIEN...'
+    Data $4C, $41, $20, $43, $55, $45, $56, $41, $20, $54, $41, $4D, $42, $49, $45, $4E, $2E, $2E, $2E, $27, 0
+    ' - ANUNCIO CHERIL -
+    Data $2D, $20, $41, $4E, $55, $4E, $43, $49, $4F, $20, $43, $48, $45, $52, $49, $4C, $20, $2D, 0
+    ' 'Y AHORA QUE, GUARRERAS? QUE TE
+    Data $27, $59, $20, $41, $48, $4F, $52, $41, $20, $51, $55, $45, $2C, $20, $47, $55, $41, $52, $52, $45, $52, $41, $53, $3F, $20, $51, $55, $45, $20, $54, $45, 0
+    ' HE VISTO MIRARME EL BUYATE'
+    Data $48, $45, $20, $56, $49, $53, $54, $4F, $20, $4D, $49, $52, $41, $52, $4D, $45, $20, $45, $4C, $20, $42, $55, $59, $41, $54, $45, $27, 0
+    ' 'CONTEMPLA MI PODEWR, COSILLA!
+    Data $27, $43, $4F, $4E, $54, $45, $4D, $50, $4C, $41, $20, $4D, $49, $20, $50, $4F, $44, $45, $57, $52, $2C, $20, $43, $4F, $53, $49, $4C, $4C, $41, $21, 0
+    ' A VER QUIEN ES CAPAZ DE ALGO ASI'
+    Data $41, $20, $56, $45, $52, $20, $51, $55, $49, $45, $4E, $20, $45, $53, $20, $43, $41, $50, $41, $5A, $20, $44, $45, $20, $41, $4C, $47, $4F, $20, $41, $53, $49, $27, 0
+    ' 'ERES FUERTE DE LA LECHE, CHICA'
+    Data $27, $45, $52, $45, $53, $20, $46, $55, $45, $52, $54, $45, $20, $44, $45, $20, $4C, $41, $20, $4C, $45, $43, $48, $45, $2C, $20, $43, $48, $49, $43, $41, $27, 0
+    ' - CONCEDIO EL ALCALDE -
+    Data $2D, $20, $43, $4F, $4E, $43, $45, $44, $49, $4F, $20, $45, $4C, $20, $41, $4C, $43, $41, $4C, $44, $45, $20, $2D, 0
+    ' 'ME HAS SERVIDO BIEN. LEVANTARE EL
+    Data $27, $4D, $45, $20, $48, $41, $53, $20, $53, $45, $52, $56, $49, $44, $4F, $20, $42, $49, $45, $4E, $2E, $20, $4C, $45, $56, $41, $4E, $54, $41, $52, $45, $20, $45, $4C, 0
+    ' SELLO QUE TE RETIENE.'
+    Data $53, $45, $4C, $4C, $4F, $20, $51, $55, $45, $20, $54, $45, $20, $52, $45, $54, $49, $45, $4E, $45, $2E, $27, 0
+    ' 'Y ESO ES TODO?' - GRITO CHERIL -
+    Data $27, $59, $20, $45, $53, $4F, $20, $45, $53, $20, $54, $4F, $44, $4F, $3F, $27, $20, $2D, $20, $47, $52, $49, $54, $4F, $20, $43, $48, $45, $52, $49, $4C, $20, $2D, 0
+    ' 'QUE PODRIA EVITAR QUE SUBIERA
+    Data $27, $51, $55, $45, $20, $50, $4F, $44, $52, $49, $41, $20, $45, $56, $49, $54, $41, $52, $20, $51, $55, $45, $20, $53, $55, $42, $49, $45, $52, $41, 0
+    ' AHI ARRIBA A APLASTARTE EL CEBOLLO
+    Data $41, $48, $49, $20, $41, $52, $52, $49, $42, $41, $20, $41, $20, $41, $50, $4C, $41, $53, $54, $41, $52, $54, $45, $20, $45, $4C, $20, $43, $45, $42, $4F, $4C, $4C, $4F, 0
+    ' DE LA MISMA FORMA QUE HICE CON
+    Data $44, $45, $20, $4C, $41, $20, $4D, $49, $53, $4D, $41, $20, $46, $4F, $52, $4D, $41, $20, $51, $55, $45, $20, $48, $49, $43, $45, $20, $43, $4F, $4E, 0
+    ' TODOS ESOS BICHOS PRUSIANOS	?'
+    Data $54, $4F, $44, $4F, $53, $20, $45, $53, $4F, $53, $20, $42, $49, $43, $48, $4F, $53, $20, $50, $52, $55, $53, $49, $41, $4E, $4F, $53, $09, $3F, $27, 0
+    ' 'EUUUH - TENGO UN PREMIO PARA TI'
+    Data $27, $45, $55, $55, $55, $48, $20, $2D, $20, $54, $45, $4E, $47, $4F, $20, $55, $4E, $20, $50, $52, $45, $4D, $49, $4F, $20, $50, $41, $52, $41, $20, $54, $49, $27, 0
+    Data 0
+CutsTxtE8:
+    ' 'UN PREMIO? NO ME LO MEREZCO...'
+    Data $27, $55, $4E, $20, $50, $52, $45, $4D, $49, $4F, $3F, $20, $4E, $4F, $20, $4D, $45, $20, $4C, $4F, $20, $4D, $45, $52, $45, $5A, $43, $4F, $2E, $2E, $2E, $27, 0
+    ' - MINTIO CHERIL, HALAGADA.
+    Data $2D, $20, $4D, $49, $4E, $54, $49, $4F, $20, $43, $48, $45, $52, $49, $4C, $2C, $20, $48, $41, $4C, $41, $47, $41, $44, $41, $2E, 0
+    ' 'SI. OFICIALMENTE TE OTORGO LA
+    Data $27, $53, $49, $2E, $20, $4F, $46, $49, $43, $49, $41, $4C, $4D, $45, $4E, $54, $45, $20, $54, $45, $20, $4F, $54, $4F, $52, $47, $4F, $20, $4C, $41, 0
+    ' UNICA E INIMITABLE COPA DEL MEAO,
+    Data $55, $4E, $49, $43, $41, $20, $45, $20, $49, $4E, $49, $4D, $49, $54, $41, $42, $4C, $45, $20, $43, $4F, $50, $41, $20, $44, $45, $4C, $20, $4D, $45, $41, $4F, $2C, 0
+    ' PORQUE QUIEN LA GANAO, SE LA LLEVAO,
+    Data $50, $4F, $52, $51, $55, $45, $20, $51, $55, $49, $45, $4E, $20, $4C, $41, $20, $47, $41, $4E, $41, $4F, $2C, $20, $53, $45, $20, $4C, $41, $20, $4C, $4C, $45, $56, $41, $4F, $2C, 0
+    ' QUIEN LA PERDIO, SE LA BEBIO'.
+    Data $51, $55, $49, $45, $4E, $20, $4C, $41, $20, $50, $45, $52, $44, $49, $4F, $2C, $20, $53, $45, $20, $4C, $41, $20, $42, $45, $42, $49, $4F, $27, $2E, 0
+    ' 'NO ENTIENDO BIEN LO QUE DICES',
+    Data $27, $4E, $4F, $20, $45, $4E, $54, $49, $45, $4E, $44, $4F, $20, $42, $49, $45, $4E, $20, $4C, $4F, $20, $51, $55, $45, $20, $44, $49, $43, $45, $53, $27, $2C, 0
+    ' DIJO CHERIL, 'PERO MOLA...
+    Data $44, $49, $4A, $4F, $20, $43, $48, $45, $52, $49, $4C, $2C, $20, $27, $50, $45, $52, $4F, $20, $4D, $4F, $4C, $41, $2E, $2E, $2E, 0
+    ' DE VERDAD ES UNA COPA ENORME...
+    Data $44, $45, $20, $56, $45, $52, $44, $41, $44, $20, $45, $53, $20, $55, $4E, $41, $20, $43, $4F, $50, $41, $20, $45, $4E, $4F, $52, $4D, $45, $2E, $2E, $2E, 0
+    ' VAYA MONTONACO DE PIPI!'
+    Data $56, $41, $59, $41, $20, $4D, $4F, $4E, $54, $4F, $4E, $41, $43, $4F, $20, $44, $45, $20, $50, $49, $50, $49, $21, $27, 0
+    ' 'NUNCA SABES CUANDO LO VAS A
+    Data $27, $4E, $55, $4E, $43, $41, $20, $53, $41, $42, $45, $53, $20, $43, $55, $41, $4E, $44, $4F, $20, $4C, $4F, $20, $56, $41, $53, $20, $41, 0
+    ' NECESITAR, GUARDALO BIEN!'
+    Data $4E, $45, $43, $45, $53, $49, $54, $41, $52, $2C, $20, $47, $55, $41, $52, $44, $41, $4C, $4F, $20, $42, $49, $45, $4E, $21, $27, 0
+    ' Y ASI CHERIL FUE FELIZ, EL ALCALDE
+    Data $59, $20, $41, $53, $49, $20, $43, $48, $45, $52, $49, $4C, $20, $46, $55, $45, $20, $46, $45, $4C, $49, $5A, $2C, $20, $45, $4C, $20, $41, $4C, $43, $41, $4C, $44, $45, 0
+    ' FUE FELIZ, Y TODO ERA GUACHI,
+    Data $46, $55, $45, $20, $46, $45, $4C, $49, $5A, $2C, $20, $59, $20, $54, $4F, $44, $4F, $20, $45, $52, $41, $20, $47, $55, $41, $43, $48, $49, $2C, 0
+    ' QUE ES COMO DEBE SER.
+    Data $51, $55, $45, $20, $45, $53, $20, $43, $4F, $4D, $4F, $20, $44, $45, $42, $45, $20, $53, $45, $52, $2E, 0
+    ' Y AHORA QUE? BUENO, NUEVAS AVENTURAS
+    Data $59, $20, $41, $48, $4F, $52, $41, $20, $51, $55, $45, $3F, $20, $42, $55, $45, $4E, $4F, $2C, $20, $4E, $55, $45, $56, $41, $53, $20, $41, $56, $45, $4E, $54, $55, $52, $41, $53, 0
+    ' ESPERAN A CHERIL. ESTAOS ATENTOS.
+    Data $45, $53, $50, $45, $52, $41, $4E, $20, $41, $20, $43, $48, $45, $52, $49, $4C, $2E, $20, $45, $53, $54, $41, $4F, $53, $20, $41, $54, $45, $4E, $54, $4F, $53, $2E, 0
+    ' GRACIAS POR JUGAR!
+    Data $47, $52, $41, $43, $49, $41, $53, $20, $50, $4F, $52, $20, $4A, $55, $47, $41, $52, $21, 0
+    Data 0
+    
+'' Cutscene data. The images...
+
+cs1td:
+	DataFile cs1td.BIN, BIN
+cs1pal:
+	DataInt	$0040,$0040,$0020,$022C,$0228,$0280,$02A4,$0222
+	DataInt	$068E,$08AE,$004E,$0CCA,$0EEE,$0642,$0000,$0000
+cs2td:
+	DataFile cs2td.BIN, BIN
+cs2pal:
+	DataInt	$0222,$0222,$0280,$0020,$02A4,$0CCA,$0EEE,$0444
+	DataInt	$08AE,$068E,$0000,$0000,$0000,$0000,$0000,$0000
+cs3td:
+	DataFile cs3td.BIN, BIN
+cs3pal:
+	DataInt	$0000,$0000,$004E,$020C,$0280,$02A4,$0A64,$0CCA
+	DataInt	$0EEE,$0222,$068E,$08AE,$0000,$0000,$0000,$0000
+cs4td:
+	DataFile cs4td.BIN, BIN	
+cs4pal:
+	DataInt	$0EEE,$0EEE,$0A64,$0CCA,$0222,$0002,$020C,$0000
+	DataInt	$004E,$00AE,$0280,$02A4,$068E,$08AE,$0008,$0000
+cs5td:
+	DataFile cs5td.BIN, BIN
+cs5pal:
+	DataInt	$0844,$0844,$0000,$0668,$068A,$0446,$0E66,$08AC
+	DataInt	$0AEE,$0064,$04A8,$0408,$064E,$0C88,$06AC,$0000
+cs6td:
+	DataFile cs6td.BIN, BIN
+cs6pal:
+	DataInt	$0424,$0424,$0866,$0222,$0A88,$08AC,$048A,$0000
+	DataInt	$0644,$042A,$084E,$0064,$0ACE,$0446,$0CAA,$0000
+cs1btd:
+	DataFile cs1btd.BIN, BIN
+cs1bpal:
+	DataInt	$0004,$0004,$0226,$0448,$0222,$0224,$0042,$0046
+	DataInt	$026C,$068C,$048C,$0248,$0468,$0228,$0CEE,$044A
+cs2btd:
+	DataFile cs2btd.BIN, BIN
+cs2bpal:
+	DataInt	$0004,$0004,$0844,$0224,$0042,$0266,$026C,$048C
+	DataInt	$0046,$0468,$0448,$0228,$0CEE,$0000,$0248,$044A
+
+	
+'' Cutscene data. The font
+csftd:
+	DataFile csftd.BIN, BIN
+csfpal:
+	DataInt	$0000,$0CEE,$0400,$04EE,$028E,$0000,$0000,$0000
+	DataInt	$0000,$0000,$0000,$0000,$0000,$0000,$0000,$0000
+
+
+'' Cutscene code. The subroutines
+
+Declare Sub showImage()
+	' Simple, just display the 480 tiles image in a fancy way.
+	' Image is 480 tiles, this is, 320x96 pixes = 40x12
+	For xx = 0 To 51
+		t = xx: If t > 11 Then t = 11
+		For i = 0 To t
+			x = xx - i
+			y = 2 + i
+			ts = Pallette(1) + 256 + (40 * i) + x
+			If x < 40 Then DrawTile ts, x, y
+		Next i
+		Sleep 1
+	Next x
+End Sub
+
+Declare Sub clearImage()
+	For xx = 0 To 51
+		t = xx: If t > 11 Then t = 11
+		For i = 0 To t
+			x = xx - i
+			y = 2 + i
+			If x < 40 Then DrawTile 0, x, y
+		Next i
+		Sleep 1
+	Next x
+End Sub
+
+Declare Sub miClsHelper
+	For y = 0 To 29
+		For x = 0 To 39
+			DrawTile 0, x, y
+		Next x
+	Next y	
+End Sub
+
+Declare Sub miCls
+	' FUCKING CLS DOESNT FUCKING WORK FOR THE FUCKING SAKE OF FUCKING IT
+	SetGfxPlane SCROLL_A
+	miClsHelper
+	SetGfxPlane SCROLL_B
+	miClsHelper
+End Sub
+
+Declare Sub showCutS(n As Integer)
+	'' Show cutscene #n
+	'' Prepare stuff
+	FreeAllSprites
+	
+	miCls
+	
+	' Load times / palette from image n (256 onwards, palette 1).
+	' I hate this language... everything is so damn awkward to achieve.
+	Select Case n
+		Case 1:
+			Pallettes cs1pal, 1, 0, 16
+			LoadTiles cs1td, 480, 256
+			If Language = 0 Then Reload CutsTxt1 Else Reload CutsTxtE1
+			Exit Select
+		Case 2:
+			Pallettes cs2pal, 1, 0, 16
+			LoadTiles cs2td, 480, 256
+			If Language = 0 Then Reload CutsTxt2 Else Reload CutsTxtE2
+			Exit Select
+		Case 3:
+			Pallettes cs3pal, 1, 0, 16
+			LoadTiles cs3td, 480, 256
+			If Language = 0 Then Reload CutsTxt3 Else Reload CutsTxtE3
+			Exit Select
+		Case 4:
+			Pallettes cs4pal, 1, 0, 16
+			LoadTiles cs4td, 480, 256
+			If Language = 0 Then Reload CutsTxt4 Else Reload CutsTxtE4
+			Exit Select
+		Case 5:	
+			Pallettes cs1bpal, 1, 0, 16
+			LoadTiles cs1btd, 480, 256
+			If Language = 0 Then Reload CutsTxt5 Else Reload CutsTxtE5
+			Exit Select
+		Case 6:	
+			Pallettes cs2bpal, 1, 0, 16
+			LoadTiles cs2btd, 480, 256
+			If Language = 0 Then Reload CutsTxt6 Else Reload CutsTxtE6
+			Exit Select			
+		Case 7:	
+			Pallettes cs5pal, 1, 0, 16
+			LoadTiles cs5td, 480, 256
+			If Language = 0 Then Reload CutsTxt7 Else Reload CutsTxtE7
+			Exit Select
+		Case 8:	
+			Pallettes cs6pal, 1, 0, 16
+			LoadTiles cs6td, 480, 256
+			If Language = 0 Then Reload CutsTxt8 Else Reload CutsTxtE8
+			Exit Select			
+	End Select
+	
+	' Load font/font pal (palette 0)
+	Pallettes csfpal, 0, 0, 16
+	LoadTiles csftd, 80, 32
+	
+	If n < 5 [Or] n = 7 Then
+		' Cut1
+		If ntscTimings = 1 Then
+			Asm
+				lea XgmNtscCut1, a1
+			End Asm
+		Else
+			Asm
+				lea XgmPalCut1, a1
+			End Asm
+		End If
+	ElseIf n > 4 [And] n < 7 Then
+		' Cuts
+		If ntscTimings = 1 Then
+			Asm
+				lea XgmNtscCut2, a1
+			End Asm
+		Else
+			Asm
+				lea XgmPalCut2, a1
+			End Asm
+		End If
+	ElseIf n = 8 Then
+		' Ending (Copa Meao)
+		If ntscTimings = 1 Then
+			Asm
+				lea XgmNtscEnding, a1
+			End Asm
+		Else
+			Asm
+				lea XgmPalEnding, a1
+			End Asm
+		End If
+	End If
+	xgm_startPlayMusic
+	
+	Enable SCREEN
+	
+	SetGfxPlane SCROLL_B
+	For i = 0 To 39
+		DrawTile 97, i, 1
+		DrawTile 96, i, 14
+	Next i
+	showImage 	
+	
+	' Now render the text.
+	tyadj = 16 ' make this a const!
+	x = 2: y = 0
+	doSleep = 1
+	Do
+		prsmt = 0	
+		Do
+			Read c
+			If c = 0 Then Exit Do
+			DrawTile c, x, tyadj + y + y
+			prsmt = 1
+			x = x + 1
+			j = JoyPad ()
+			If j.7 Then GoTo CutsceneAdios
+			If j Then doSleep = 0
+			If doSleep Then Sleep 6
+		Loop
+		Do
+			j = JoyPad()
+		Loop While j <> 0
+		
+		y = y + 1: x = 2
+		If y = 6 Then
+			' Wait		
+			frctn = 0	
+			Do
+				j = JoyPad()
+				frctn = frctn + 1: If frctn = 150 Then Exit Do
+				Sleep 1
+			Loop While j = 0
+			If j.7 Then GoTo CutsceneAdios
+			
+			Do
+				j = JoyPad()
+			Loop While j <> 0
+			
+			y = 0
+			
+			For i = 0 To 5
+				For j = 0 To 39
+					DrawTile 0, j, tyadj + i + i
+				Next j
+				Sleep 6
+			Next i
+			
+			doSleep = 1
+		End If
+		
+		If prsmt = 0 Then Exit Do			
+	Loop
+CutsceneAdios:
+	For i = 0 To 5
+		For j = 0 To 39
+			DrawTile 0, j, tyadj + i + i
+		Next j
+	Next i	
+	
+	
+	'' Parche para ending
+	If n = 8 Then
+		scrollyVMelt
+		Disable SCREEN
+		TheEndScreen
+	End If
+	
+	xgm_stopPlayMusic
+	
+	'clearImage
+	scrollyVMelt
+	
+	Disable SCREEN
+End Sub
+
+'' My own's lame "playSound" will play Pcm on demand...
+'' Plays sound
+Declare Sub playSound(which)
+	' channels
+	' player 0
+	' enemy 1
+	' environ 2
+	Select Case which
+		Case 0:
+			' CEBOLLA!
+			Exit Select
+		' Jump
+		Case 1:
+			Asm			 	
+				lea 	PcmJump,a1
+				move.l	#(PcmJump_end-PcmJump),d1
+				move.l	#((1<<4)|3),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Hit
+		Case 2:
+			Asm			 	
+				lea 	PcmHit,a1
+				move.l	#(PcmHit_end-PcmHit),d1
+				move.l	#((1<<4)|1),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Ah			
+		Case 3:
+			Asm			 	
+				lea 	PcmJump,a1
+				move.l	#(PcmAh_end-PcmAh),d1
+				move.l	#((1<<4)|0),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Spike
+		Case 4:
+			Asm			 	
+				lea 	PcmSpike,a1
+				move.l	#(PcmSpike_end-PcmSpike),d1
+				move.l	#((1<<4)|1),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Key
+		Case 5:
+			Asm			 	
+				lea 	PcmKey,a1
+				move.l	#(PcmKey_end-PcmKey),d1
+				move.l	#((1<<4)|2),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Life
+		Case 6:
+			Asm			 	
+				lea 	PcmLife,a1
+				move.l	#(PcmLife_end-PcmLife),d1
+				move.l	#((1<<4)|2),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Object
+		Case 7:
+			Asm			 	
+				lea 	PcmObject,a1
+				move.l	#(PcmObject_end-PcmObject),d1
+				move.l	#((1<<4)|2),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Bolt
+		Case 8:
+			Asm			 	
+				lea 	PcmBolt,a1
+				move.l	#(PcmBolt_end-PcmBolt),d1
+				move.l	#((1<<4)|2),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Blam
+		Case 9:
+			Asm			 	
+				lea 	PcmBlam,a1
+				move.l	#(PcmBlam_end-PcmBlam),d1
+				move.l	#((1<<4)|2),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' No!
+		Case 10:
+			Asm			 	
+				lea 	PcmNo,a1
+				move.l	#(PcmNo_end-PcmNo),d1
+				move.l	#((1<<4)|1),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Dale Fran!
+		Case 11:
+			Asm			 	
+				lea 	PcmDaleFran,a1
+				move.l	#(PcmDaleFran_end-PcmDaleFran),d1
+				move.l	#((1<<4)|0),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Start
+		Case 12:
+			Asm			 	
+				lea 	PcmStart,a1
+				move.l	#(PcmStart_end-PcmStart),d1
+				move.l	#((1<<4)|0),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Select
+		Case 13:
+			Asm			 	
+				lea 	PcmSelect,a1
+				move.l	#(PcmSelect_end-PcmSelect),d1
+				move.l	#((1<<4)|0),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Power Off
+		Case 14:
+			Asm			 	
+				lea 	PcmPowerOff,a1
+				move.l	#(PcmPowerOff_end-PcmPowerOff),d1
+				move.l	#((1<<4)|1),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Count down
+		Case 15:
+			Asm			 	
+				lea 	PcmCountDown,a1
+				move.l	#(PcmCountDown_end-PcmCountDown),d1
+				move.l	#((1<<4)|3),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		' Count down end
+		Case 16:
+			Asm			 	
+				lea 	PcmFinalCountdown,a1
+				move.l	#(PcmFinalCountdown_end-PcmFinalCountdown),d1
+				move.l	#((1<<4)|3),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		Case 17:
+			Asm			 	
+				lea 	PcmBarril,a1
+				move.l	#(PcmBarril_end-PcmBarril),d1
+				move.l	#((1<<4)|2),d2
+			End Asm
+			xgm_playPCM
+			Exit Select
+		Case 18:
+			Asm			 	
+				lea 	PcmPause,a1
+				move.l	#(PcmPause_end-PcmPause),d1
+				move.l	#((1<<4)|2),d2
+			End Asm
+			xgm_playPCM
+			Exit Select			
+	End Select
+End Sub
+
+sltd:
+	DataFile sltd.BIN, BIN
+slpd:
+	DataFile slpd.BIN, BIN
+	
+Declare Sub selectLanguage
+	language = 0
+	
+	miCls
+	
+	' Load tilemaps, pals.
+	Pallettes csfpal, 0, 0, 16
+	LoadTiles csftd, 80, 32
+	Pallettes slpd, 1, 0, 16
+	LoadTiles sltd, 24, 256
+	
+	' Show flags
+	DrawTilesInc Pallette(1) + 257, 10, 10, 3, 3
+	DrawTilesInc Pallette(1) + 266, 10, 15, 3, 3
+	
+	' Show texts
+	Locate 10, 14: Print "ENGLISH LANGUAGE"
+	Locate 15, 14: Print "IDIOMA DE BADAJOZ"
+	
+	' Remove this
+	Locate 1, 0
+	If ntscTimings = 1 Then Print "NTSC (60HZ)" Else Print "PAL (50HZ)"
+	
+	sprHand = AddSprite(2, 2)
+	PropSprite sprHand, 275, 1
+	dothis = 1
+	
+	' Do
+	Enable SCREEN
+	
+	Do
+		MoveSprite sprHand, 190, 214 + (40 * language)
+		j = JoyPad()
+		If j.0 And language = 1 Then language = 0: playSound 6
+		If j.1 And language = 0 Then language = 1: playSound 6
+		If j.4 [Or] j.5 [Or] j.6 [Or] j.7 Then dothis = 0
+	Loop While dothis
+	
+	Disable SCREEN
+	FreeAllSprites
+End Sub
+
+Declare Sub scrollyVMelt 
+	For i = 0 To 9
+		yScrollPostn(i) = i * 8
+		yScrollPostn(19-i) = i * 8
+		yScrollCoord(i) = 0
+		yScrollCoord(19-i) = 0
+	Next i
+	SetScrollMode HSCROLL_LINE, VSCROLL_2CELL
+	ctr = 0
+	Do
+		For i = 0 To 19
+			If yScrollPostn(i) > 0 Then
+				yScrollPostn(i) = yScrollPostn(i) - 8
+			Else
+				yScrollCoord(i) = yScrollCoord(i) + 8
+				If yScrollCoord(i) <= 240 Then
+					SetScrollPlane SCROLL_A
+					Scroll DOWN, 8, i
+					SetScrollPlane SCROLL_B
+					Scroll UP, 8, i
+				End If
+			End If
+		Next i
+		Sleep 1
+		ctr = ctr + 8
+	Loop While ctr < 320
+
+	miCls
+	For i = 0 To 19
+		SetScrollPlane SCROLL_A
+		Scroll2 DOWN, 0, i
+		SetScrollPlane SCROLL_B
+		Scroll2 DOWN, 0, i
+	Next i
+End Sub
+
+'' Waits for vSync to start. 
+'' From http://bigevilcorporation.co.uk/2012/04/30/sega-megadrive-7-gamepad-input-and-the-game-loop/
+
+Declare Sub vSync
+	Asm
+WaitVBlankStart:
+	; $C00004 = vdp_control
+	move.w 0x00C00004, d0	; Move VDP status word To d0
+	andi.w #0x0008, d0		; And with bit 4 (VBLANK), result in status register
+	bne    WaitVBlankStart	; Branch If Not equal (To zero)
+	
+WaitVBlankEnd:
+	move.w 0x00C00004, d0	; Move VDP status word To d0
+	andi.w #0x0008, d0		; And with bit 4 (VBLANK), result in status register
+	beq    WaitVBlankEnd	; Branch If equal (To zero)
+	
+	End Asm
+End Sub
+
+'' I can't believe I'm still adding stuff to this shit.
+'' People will be tricked into thinking this is a worthwhile game or what?
+Declare Sub newLevelAnimationCreateSprites
+	'' Create sprites
+	' 2 x 32x24 sprites for "STAGE", 
+	' 1 x 16x24 sprite for stage #
+	' 4 x 32x24 sprites for level name
+	nla_sh(0) = AddSprite (3, 4): nla_sh(1) = AddSprite (3, 4)
+	nla_sh(2) = AddSprite (3, 2)
+	nla_sh(3) = AddSprite (3, 4): nla_sh(4) = AddSprite (3, 4)
+	nla_sh(5) = AddSprite (3, 4): nla_sh(6) = AddSprite (3, 4)
+End Sub	
+
+Declare Sub newLevelAnimation
+	'' Load from 1140 onwards
+	tBase = 1140
+	animStep1 = 16
+	animStep2 = 32
+	yTop = 80 + 128
+	yStep = 40
+	
+	'' Load patterns
+	' I need	24 patterns for "STAGE"		@ 0					-> (tBase)
+	' 			6 patterns for stage #		@ 24 + (level-1)*6	-> (tBase + 24)
+	'			48 patterns for stage name	@ 54 + (level-1)*48	-> (tBase + 30)
+	LoadTiles nla_td, 24, tBase, 0
+	LoadTiles nla_td, 6, tBase + 24, 24 + ((level - 1) * 6)
+	LoadTiles nla_td, 48, tBase + 30, 54 + ((level - 1) * 48)
+	
+	'' Replace hud palette (palette #0)
+	Pallettes nla_pd, 0, 0, 16
+	
+	' prop sprites...
+	PropSprite nla_sh(0), tBase, 0
+	PropSprite nla_sh(1), tBase + 12, 0
+	
+	PropSprite nla_sh(2), tBase + 24, 0
+	
+	PropSprite nla_sh(3), tBase + 30, 0
+	PropSprite nla_sh(4), tBase + 42, 0
+	PropSprite nla_sh(5), tBase + 54, 0
+	PropSprite nla_sh(6), tBase + 66, 0
+	
+	' Out of the way...
+	For i = 0 To 6: MoveSprite nla_sh(i), 0, 0: Next i
+	
+	'' "STAGE #" enters from left to hit the center of the screen.
+	' "STAGE #" is 64+16 = 80 pixels wide. Centered @X = 128 + 120. Starts @ 128 - 80
+	x1 = 128 - 88
+	y1 = yTop
+	While x1 < (128 + 120)
+		x1 = x1 + animStep1
+		For i = 0 To 2
+			MoveSprite nla_sh(i), x1 + (i * 32), y1
+		Next i
+		vSync
+	Wend
+	
+	' Estruj sound
+	playSound 9
+	
+	'' Wait some
+	If ntscTimings = 1 Then 
+		Sleep 24
+	Else
+		Sleep 20
+	End If
+	
+	'' stage_name enters from right to hit the center of the screen.
+	' stage_name is 128 pixels wide. Centered @X = 128 + 96. Starts @ 128 + 320
+	x2 = 128 + 320
+	y2 = y1 + yStep
+	While x2 > (128 + 96)
+		x2 = x2 - animStep1
+		For i = 0 To 3
+			MoveSprite nla_sh(3 + i), x2 + (i * 32), y2
+		Next i		
+		vSync
+	Wend
+	
+	' Estruj sound
+	playSound 9
+	
+	'' Wait some
+	If ntscTimings = 1 Then 
+		Sleep 60
+	Else
+		Sleep 50
+	End If
+	
+	'' Dale fran!
+	playSound 11
+	
+	'' Wait for dale fran to stop
+	If ntscTimings = 1 Then
+		'sleep 90
+		Sleep 36
+	Else
+		'sleep 75
+		Sleep 30
+	End If
+	
+	'' Exit 
+	While x2 > 0
+		x2 = x2 - animStep2
+		x1 = x1 + animStep2
+		For i = 0 To 2
+			MoveSprite nla_sh(i), x1 + (i * 32), y1
+		Next i
+		For i = 0 To 3
+			MoveSprite nla_sh(3 + i), x2 + (i * 32), y2
+		Next i
+		vSync
+	Wend
+	
+	'' Destroy and free sprites
+	For i = 0 To 6: FreeSprite nla_sh(i): Next i
+End Sub
+
+''
+tile1300:
+	DataLong $FFFFFFFF, $FFFFFFFF, $FFFFFFFF, $FFFFFFFF
+	DataLong $FFFFFFFF, $FFFFFFFF, $FFFFFFFF, $FFFFFFFF
+
+Declare Sub drawSimpleFrame
+	SetGfxPlane SCROLL_A
+	For i = 0 To 39
+		DrawTile Pallette(2)+1300, i, 0
+		DrawTile Pallette(2)+1300, i, 27
+		DrawTile Pallette(2)+1300, i, 28
+	Next i
+End Sub
+
+Declare Sub positionHud
+	For y = 112 To 144 Step 4
+		For mli = 0 To 7
+			MoveSprite hudSprs(mli), 136 + (mli << 3), y
+		Next mli
+		Sleep 1
+	Next y
+End Sub
+
+Declare Sub outTheHud
+	For y = 144 To 112 Step -4
+		For mli = 0 To 7
+			MoveSprite hudSprs(mli), 136 + (mli << 3), y
+		Next mli
+		Sleep 1
+	Next y
+End Sub
+
+''
+
+Declare Sub Wt 
+	Do
+		j = JoyPad()	
+	Loop While j.4 [Or] j.5 [Or] j.6 [Or] j.7
+	Do
+		j = JoyPad()	
+	Loop While 0 = (j.4 [Or] j.5 [Or] j.6 [Or] j.7)
+End Sub
+
+''
+
+EndingTileMap:
+	DataFile endingtm.BIN, BIN
+EndingTileData:
+	DataFile endingtd.BIN, BIN
+EndingPaletteData:
+	DataInt	$0000,$0C64,$0224,$0266,$0E82,$048C,$0248,$026C
+	DataInt	$0EEA,$0442,$0268,$0000,$0000,$0000,$0000,$0000
+
+
+Declare Sub TheEndScreen
+
+	SetGfxPlane SCROLL_A
+	miClsHelper
+	SetGfxPlane SCROLL_B
+	miClsHelper
+
+	'' Read tiledata first
+	'' 56*17; 7 cells of 8*17; 8*17=136
+	Reload EndingTileMap
+	For y = 0 To 16
+		rwi = y * 8
+		
+		For x = 0 To 55
+			celln = x / 8
+			cellx = x - (celln * 8)
+			ReadInt a
+			
+			cells(celln, cellx + rwi) = a + Palette(1) + 256
+		Next x
+		Print
+	Next y
+	
+	' Load stuff
+	'' Load tile data
+	LoadTiles EndingTileData, 420, 256
+	LoadTiles csftd, 80, 32
+	
+	'' Setup palette
+	Pallettes EndingPaletteData, 1, 0, 16
+	Pallettes csfpal, 0, 0, 16
+	
+	SetGfxPlane SCROLL_B
+	it = 0
+	For y = 0 To 16
+		For x = 0 To 7
+			DrawTile cells (6, it), 16 + x, 5 + y
+			it = it + 1
+		Next x
+	Next y
+	
+	Locate 2, 14: Print "THE END ..."
+	Locate 22,13: Print "SEE YOU SOON!"
+		
+	Enable SCREEN
+	
+	SetGfxPlane SCROLL_A
+
+	Do
+		j = JoyPad()	
+	Loop While j.4 [Or] j.5 [Or] j.6 [Or] j.7
+
+	'' Do
+	terminado = 0
+	cell = 0: frc = 0
+	While terminado = 0
+		j = JoyPad()
+		If j.4 [Or] j.5 [Or] j.6 [Or] j.7 Then terminado = 1
+		
+		' Show cell
+		If frc > 0 Then 
+			frc = frc - 1 
+		Else 
+			frc = 10
+			cell = cell + 1: If cell = 6 Then cell = 0
+			
+			it = 0
+			For y = 0 To 16
+				For x = 0 To 7
+					DrawTile cells (cell, it), 16 + x, 5 + y
+					it = it + 1
+				Next x
+			Next y
+		End If
+		
+		Sleep 1
+	Wend
+	
+	scrollyVMelt
+
+	Locate 6, 6: Print "CODE:"
+	Locate 7, 16: Print "THE MCKANAKEE"
+	Locate 9, 6: Print "GRAPHICS:"
+	Locate 10, 16: Print "ANJUEL & NA THAN"
+	Locate 12, 6: Print "MUSIC & SFX:"
+	Locate 13, 16: Print "DAVIDIAN"
+	Locate 15, 6: Print "DADOR DE FRAN:"
+	Locate 16, 16: Print "NA THAN"
+	
+	Locate 20, 9: Print "THANK YOU FOR PLAYING!"
+	Locate 21, 9: Print "WINNERS DON'T USE BEX!"
+	
+	Wt
+End Sub
+
+'' Passwords graphics
+
+PasswordSymbolsTileData:
+	DataFile epstd.BIN, BIN
+PasswordSymbolsPalette:
+	DataInt	$0000,$0844,$0CEE,$0C88,$020A,$040E,$086E,$0280
+	DataInt	$04C2,$0CCC,$08E6,$0A40,$0E62,$0E86,$0000,$0000
+
+EnterPasswordTileMap:
+	DataFile epdtm.BIN, BIN
+EnterPasswordTileData:
+	DataFile epdtd.BIN, BIN
+EnterPasswordPalette:
+	DataInt	$0224,$0224,$0624,$0A44,$0666,$0266,$068A,$0E88
+	DataInt	$066A,$0AEE,$0042,$0248,$046A,$048C,$026C,$0000
+
+'' Passwords:
+
+' 0 UP 1 RIGHT 2 DOWN 3 LEFT 4 A 5 B 6 C.
+GamePasswords:
+	' Level 2
+	DataInt 0, 2, 4, 6, 3, 1, 5, 0
+	' Level 3
+	DataInt 5, 5, 1, 3, 6, 4, 0, 2
+	' Level 4
+	DataInt 4, 5, 6, 2, 2, 0, 6, 1
+	' Level 5
+	DataInt 6, 0, 5, 1, 4, 2, 5, 3
+	' Ending sequence
+	DataInt 0, 0, 1, 1, 2, 2, 3, 4
+	' AAAAAAAA
+	DataInt 4, 4, 4, 4, 4, 4, 4, 4
+	' BBBBBBBB
+	DataInt 5, 5, 5, 5, 5, 5, 5, 5
+	' CCCCCCCC
+	DataInt 6, 6, 6, 6, 6, 6, 6, 6
+
+'' Print a password from x, y
+Declare Sub printPassword(l, x, y)
+	' Skip
+	Reload GamePasswords
+	If l > 2 Then For i = 1 To (l-2) * 8: ReadInt spendable: Next i
+	
+	' Draw
+	For i = 1 To 8
+		ReadInt joyInput
+		tile = joyInput * 4
+		DrawTilesInc 256 + tile + Pallette (1), x, y, 2, 2
+		x = x + 2
+	Next i
+End Sub
+
+'' Password screen [A screen with the password]
+
+Declare Sub showPasswordScreen
+	SetGfxPlane SCROLL_A
+	miClsHelper
+	SetGfxPlane SCROLL_B
+	miClsHelper
+	
+	' Load stuff
+	'' Load tile data
+	LoadTiles PasswordSymbolsTileData, 32, 256
+	LoadTiles csftd, 80, 32
+	
+	'' Setup palette
+	Pallettes PasswordSymbolsPalette, 1, 0, 16
+	Pallettes csfpal, 0, 0, 16
+	
+	If level < 6 Then
+		If language = 0 Then
+			Locate 9, 15: Print "LEVEL 0"; level
+			Locate 11, 15: Print "PASSCODE"
+		Else
+			Locate 9, 16: Print "FASE "; level
+			Locate 11, 16: Print "CODIGO"
+		End If
+	ElseIf level = 6 Then
+		If language = 0 Then
+			Locate 9, 2: Print "YOU CAN ALWAYS WATCH THIS SEQUENCE"
+			Locate 11, 2: Print "IF YOU ENTER THE 'GERMAN PASSCODE'"
+		Else
+			Locate 9, 5: Print "SI QUIERES VER ESTO DE NUEVO"
+			Locate 11, 5: Print "RECUERDA ESTE CODIGO ALEMAN:"
+		End If
+	End If
+	
+	printPassword level, 12, 14
+	
+	Enable SCREEN
+	
+	Wt
+	
+	Disable SCREEN
+	
+	SetGfxPlane SCROLL_A
+	miClsHelper
+	SetGfxPlane SCROLL_B
+	miClsHelper
+End Sub
+
+'' Greetings
+
+Declare Sub greetingsScreen
+	SetGfxPlane SCROLL_A
+	miClsHelper
+	SetGfxPlane SCROLL_B
+	miClsHelper
+	
+	LoadTiles GreetingsTileData, 664, 256
+	Pallettes GreetingsPalette, 1, 0, 16
+	
+	Reload GreetingsTileMap
+	
+	If ntscTimings = 1 Then
+		For y = 0 To 27
+			For x = 0 To 39
+				ReadInt tile
+				DrawTile 256 + Palette(1) + tile, x, y
+				ctr=ctr+1
+			Next x
+		Next y	
+	Else
+		For y = 1 To 28
+			For x = 0 To 39
+				ReadInt tile
+				DrawTile 256 + Palette(1) + tile, x, y
+			Next x
+		Next y
+	End If
+	
+	Enable SCREEN
+	While JoyPad()=0: Wend
+	While JoyPad(): Wend
+	scrollyVMelt
+	Disable SCREEN
+End Sub
+
+'' Enter password screen
+
+Declare Sub enterPasswordScreen
+	SetGfxPlane SCROLL_A
+	miClsHelper
+	SetGfxPlane SCROLL_B
+	miClsHelper
+	
+	' Load stuff
+	'' Load tile data
+	LoadTiles PasswordSymbolsTileData, 32, 256
+	LoadTiles EnterPasswordTileData, 212, 512
+	LoadTiles csftd, 80, 32
+	
+	'' Setup palette
+	Pallettes PasswordSymbolsPalette, 1, 0, 16
+	Pallettes EnterPasswordPalette, 2, 0, 16
+	Pallettes csfpal, 0, 0, 16
+	
+	Reload EnterPasswordTileMap
+	
+	For y = 0 To 11
+		For x = 0 To 23
+			ReadInt tile
+			DrawTile 512 + Palette(2) + tile, 8 + x, 4 + y
+		Next x
+	Next y
+	
+	If language = 0 Then 
+		Locate 17,12: Print "ENTER PASSCODE"
+		Locate 19,11: Print "AND PRESS START!"
+	Else
+		Locate 17,11: Print "INTRODUCE CODIGO"
+		Locate 19,12: Print "Y PULSA START!"
+	End If
+	
+	For i = 0 To 7: pass_code(i) = 8: Next i
+	
+	Enable SCREEN
+	
+	terminado = 0: act = 1: old = JoyPad(): cursor = 0
+	
+	Do While terminado = 0
+		If act = 1 Then
+			x = 12: y = 22
+			SetGfxPlane SCROLL_A
+			DrawTilesInc 256 + 28 + Pallette (1), x + cursor + cursor, y, 2, 2
+			
+			SetGfxPlane SCROLL_B
+			act = 0
+			For i = 0 To 7
+				If pass_code (i) = 8 Then
+					DrawTile 32, x, y
+					DrawTile 32, x + 1, y
+					DrawTile 32, x, y + 1
+					DrawTile 32, x + 1, y + 1
+				Else
+					tile = pass_code (i) * 4
+					DrawTilesInc 256 + tile + Pallette (1), x, y, 2, 2
+				End If
+				x = x + 2
+			Next i
+		End If
+		j = JoyPad()
+		If j <> 0 Then
+			If j.0 Then
+				d = 0
+			ElseIf j.3 Then
+				d = 1
+			ElseIf j.1 Then
+				d = 2
+			ElseIf j.2 Then
+				d = 3
+			ElseIf j.6 Then
+				d = 4
+			ElseIf j.4 Then
+				d = 5
+			ElseIf j.5 Then
+				d = 6
+			ElseIf j.7 Then
+				d = -1: terminado = 1
+			Else
+				d = -1
+			End If
+			If d <> -1 Then 
+				SetGfxPlane SCROLL_A
+				x = 12 + cursor + cursor
+				DrawTile 32, x, y
+				DrawTile 32, x + 1, y
+				DrawTile 32, x, y + 1
+				DrawTile 32, x + 1, y + 1
+				
+				pass_code(cursor) = d: cursor = cursor + 1: If cursor = 8 Then cursor = 0
+				
+				playSound 13
+				act = 1
+			End If			
+			While JoyPad(): Wend
+		End If
+		Sleep 1
+	Loop
+	
+	' Check password
+	Reload GamePasswords
+	level = 1
+	For i = 2 To 9
+		found = 1
+		For j = 0 To 7
+			ReadInt a
+			If a <> pass_code(j) Then
+				found = 0
+			End If
+		Next j
+		If found = 1 Then
+			playSound 12
+			level = i
+			Exit For
+		End If
+	Next i
+	
+	If level = 1 Then playSound 10
+	
+	Disable SCREEN
+End Sub
+
+'' Greetings
+
+GreetingsTileMap:
+	DataFile greetings-tm.bin, BIN
+GreetingsTileData:
+	DataFile greetings-td.bin, BIN
+GreetingsPalette:
+	DATAINT	$0420,$0420,$00A4,$0224,$000C,$0024,$08EE,$0004
+	DATAINT	$0026,$004A,$006A,$06AE,$0ACE,$00C8,$0AEE,$0062
